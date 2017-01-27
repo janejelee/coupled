@@ -68,10 +68,12 @@ namespace Step22
     namespace data
     {
         const double rho_B = 5.0;
-        const double rho_h = 1.0;
         const double eta = 1.0;
         const double top = 1.0;
         const double bottom = 0.0;
+        const double p_top = 5.0;
+        const double p_bottom = 10.0;
+        
     };
     
     
@@ -123,7 +125,8 @@ namespace Step22
         std_cxx11::shared_ptr<typename InnerPreconditioner<dim>::type> A_preconditioner;
     };
     
-   
+  ////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
     
     template <int dim>
     class BoundaryValuesTop : public Function<dim>
@@ -237,10 +240,10 @@ namespace Step22
     }
     
     template <int dim>
-    class StressBoundaryValues : public Function<dim>
+    class StressBoundaryValuesTop : public Function<dim>
     {
     public:
-        StressBoundaryValues () : Function<dim>(dim+1) {}
+        StressBoundaryValuesTop () : Function<dim>(dim+1) {}
         
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
@@ -253,26 +256,62 @@ namespace Step22
     
     template <int dim>
     double
-    StressBoundaryValues<dim>::value (const Point<dim>  &/*p*/,
+    StressBoundaryValuesTop<dim>::value (const Point<dim>  &/*p*/,
                                const unsigned int /*component*/) const
     {
         
-        return (-data::rho_B);
+        return (-data::p_top);
     }
     
     
     template <int dim>
     void
-    StressBoundaryValues<dim>::vector_value (const Point<dim> &p,
+    StressBoundaryValuesTop<dim>::vector_value (const Point<dim> &p,
                                       Vector<double>   &values) const
     {
         for (unsigned int c=0; c<this->n_components; ++c)
-            values(c) = StressBoundaryValues<dim>::value (p, c);
+            values(c) = StressBoundaryValuesTop<dim>::value (p, c);
     }
     
     
+    template <int dim>
+    class StressBoundaryValuesBottom : public Function<dim>
+    {
+    public:
+        StressBoundaryValuesBottom () : Function<dim>(dim+1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+        
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
+        
+    };
     
     
+    template <int dim>
+    double
+    StressBoundaryValuesBottom<dim>::value (const Point<dim>  &/*p*/,
+                                         const unsigned int /*component*/) const
+    {
+        
+        return (-data::p_bottom);
+    }
+    
+    
+    template <int dim>
+    void
+    StressBoundaryValuesBottom<dim>::vector_value (const Point<dim> &p,
+                                                Vector<double>   &values) const
+    {
+        for (unsigned int c=0; c<this->n_components; ++c)
+            values(c) = StressBoundaryValuesBottom<dim>::value (p, c);
+    }
+    
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    
+
     template <class Matrix, class Preconditioner>
     class InverseMatrix : public Subscriptor
     {
@@ -354,7 +393,8 @@ namespace Step22
     }
     
     
-    
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     
     template <int dim>
     StokesProblem<dim>::StokesProblem (const unsigned int degree)
@@ -388,6 +428,14 @@ namespace Step22
             FEValuesExtractors::Vector velocities(0);
             DoFTools::make_hanging_node_constraints (dof_handler,
                                                      constraints);
+            
+            std::set<types::boundary_id> no_normal_flux_boundaries;
+            no_normal_flux_boundaries.insert (0);
+            VectorTools::compute_no_normal_flux_constraints (dof_handler, 0,
+                                                             no_normal_flux_boundaries,
+                                                             constraints);
+            /*
+            
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
                                                       BoundaryValuesTop<dim>(),
@@ -398,6 +446,7 @@ namespace Step22
                                                       BoundaryValuesBottom<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
+             */
         }
         
         constraints.close ();
@@ -442,7 +491,8 @@ namespace Step22
         system_rhs.collect_sizes ();
     }
     
-    
+  /////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////
     
     template <int dim>
     void StokesProblem<dim>::assemble_system ()
@@ -478,7 +528,8 @@ namespace Step22
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
         const RightHandSide<dim>          right_hand_side;
-        const StressBoundaryValues<dim>   stress_boundary_values;
+        const StressBoundaryValuesTop<dim>   stress_boundary_values_top;
+        const StressBoundaryValuesBottom<dim>   stress_boundary_values_bottom;
         
         std::vector<Vector<double> >      rhs_values (n_q_points,
                                                       Vector<double>(dim+1));
@@ -489,6 +540,7 @@ namespace Step22
         
         std::vector<Tensor<1,dim> >          phi_u       (dofs_per_cell);
         std::vector<SymmetricTensor<2,dim> > symgrad_phi_u (dofs_per_cell);
+        std::vector<Tensor<2,dim> >          grad_phi_u (dofs_per_cell);
         std::vector<double>                  div_phi_u   (dofs_per_cell);
         std::vector<double>                  phi_p       (dofs_per_cell);
         
@@ -510,6 +562,7 @@ namespace Step22
                 {
                     phi_u[k]         = fe_values[velocities].value (k, q);
                     symgrad_phi_u[k] = fe_values[velocities].symmetric_gradient (k, q);
+                    grad_phi_u[k]    = fe_values[velocities].gradient (k, q);
                     div_phi_u[k]     = fe_values[velocities].divergence (k, q);
                     phi_p[k]         = fe_values[pressure].value (k, q);
                 }
@@ -518,7 +571,9 @@ namespace Step22
                 {
                     for (unsigned int j=0; j<=i; ++j)
                     {
-                        local_matrix(i,j) += (2 * (symgrad_phi_u[i] * symgrad_phi_u[j])
+                        local_matrix(i,j) += (2 *
+                                              scalar_product
+                                              (grad_phi_u[i] ,grad_phi_u[j])
                                               - div_phi_u[i] * phi_p[j]
                                               - phi_p[i] * div_phi_u[j]
                                               + phi_p[i] * phi_p[j])
@@ -537,7 +592,7 @@ namespace Step22
                                     fe_values.JxW(q); */
                     
                     for (unsigned int i=0; i<dofs_per_cell; ++i)
-                        local_rhs(i) += (-data::rho_B *
+                        local_rhs(i) += (data::rho_B *
                                          gravity * phi_u[i] )*
                                          fe_values.JxW(q);
                 }
@@ -564,7 +619,8 @@ namespace Step22
         
     }
     
-    
+    /////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
     
     
     template <int dim>
