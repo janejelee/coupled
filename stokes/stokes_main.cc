@@ -222,7 +222,7 @@ namespace Step22
     RightHandSide<dim>::value (const Point<dim>  &/*p*/,
                                const unsigned int /*component*/) const
     {
-
+        
         return (-data::rho_B);
     }
     
@@ -236,6 +236,39 @@ namespace Step22
             values(c) = RightHandSide<dim>::value (p, c);
     }
     
+    template <int dim>
+    class StressBoundaryValues : public Function<dim>
+    {
+    public:
+        StressBoundaryValues () : Function<dim>(dim+1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+        
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
+        
+    };
+    
+    
+    template <int dim>
+    double
+    StressBoundaryValues<dim>::value (const Point<dim>  &/*p*/,
+                               const unsigned int /*component*/) const
+    {
+        
+        return (-data::rho_B);
+    }
+    
+    
+    template <int dim>
+    void
+    StressBoundaryValues<dim>::vector_value (const Point<dim> &p,
+                                      Vector<double>   &values) const
+    {
+        for (unsigned int c=0; c<this->n_components; ++c)
+            values(c) = StressBoundaryValues<dim>::value (p, c);
+    }
     
     
     
@@ -418,6 +451,7 @@ namespace Step22
         system_rhs=0;
         
         QGauss<dim>   quadrature_formula(degree+2);
+        QGauss<dim-1> face_quadrature_formula(degree+2);
         
         FEValues<dim> fe_values (fe, quadrature_formula,
                                  update_values    |
@@ -425,9 +459,18 @@ namespace Step22
                                  update_JxW_values |
                                  update_gradients);
         
+        FEFaceValues<dim> fe_face_values ( fe, face_quadrature_formula,
+                                          update_values |
+                                          update_normal_vectors |
+                                          update_quadrature_points |
+                                          update_JxW_values
+                                          );
+        
         const unsigned int   dofs_per_cell   = fe.dofs_per_cell;
         
         const unsigned int   n_q_points      = quadrature_formula.size();
+        const unsigned int   n_face_q_points = face_quadrature_formula.size();
+        
         
         FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
         Vector<double>       local_rhs (dofs_per_cell);
@@ -435,8 +478,11 @@ namespace Step22
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
         const RightHandSide<dim>          right_hand_side;
+        const StressBoundaryValues<dim>   stress_boundary_values;
+        
         std::vector<Vector<double> >      rhs_values (n_q_points,
                                                       Vector<double>(dim+1));
+        std::vector<double>               boundary_values (n_face_q_points);
         
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
