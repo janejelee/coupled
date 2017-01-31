@@ -69,10 +69,10 @@ namespace Step22
     {
         const double rho_B = 1.0;
         const double eta = 1.0;
-        const double top = 1.0;
+        const double top = 0.1;
         const double bottom = 0.0;
-        const double p_top = 10.0;
-        const double p_bottom = 100.0;
+        const double p_top = 0.0;
+        const double p_bottom = 1.0;
         const int dimension = 2;
         
     };
@@ -381,7 +381,7 @@ namespace Step22
                                               (grad_phi_u[i] ,grad_phi_u[j])
                                               - div_phi_u[i] * phi_p[j]
                                               - phi_p[i] * div_phi_u[j]
-                                              + phi_p[i] * phi_p[j])
+                                              /*+ phi_p[i] * phi_p[j]*/ )
                         * fe_values.JxW(q);
                         
                     }
@@ -451,68 +451,22 @@ namespace Step22
                                                     system_matrix, system_rhs);
         }
         
-        std::cout << "   Computing preconditioner..." << std::endl << std::flush;
-        
-        A_preconditioner
-        = std_cxx11::shared_ptr<typename InnerPreconditioner<dim>::type>(new typename InnerPreconditioner<dim>::type());
-        A_preconditioner->initialize (system_matrix.block(0,0),
-                                      typename InnerPreconditioner<dim>::type::AdditionalData());
         
     }
     
     /////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     
+
     
     template <int dim>
     void StokesProblem<dim>::solve ()
     {
-        const InverseMatrix<SparseMatrix<double>,
-        typename InnerPreconditioner<dim>::type>
-        A_inverse (system_matrix.block(0,0), *A_preconditioner);
-        Vector<double> tmp (solution.block(0).size());
-        
-        {
-            Vector<double> schur_rhs (solution.block(1).size());
-            A_inverse.vmult (tmp, system_rhs.block(0));
-            system_matrix.block(1,0).vmult (schur_rhs, tmp);
-            schur_rhs -= system_rhs.block(1);
-            
-            SchurComplement<typename InnerPreconditioner<dim>::type>
-            schur_complement (system_matrix, A_inverse);
-            
-            SolverControl solver_control (solution.block(1).size(),
-                                          1e-6*schur_rhs.l2_norm());
-            SolverCG<>    cg (solver_control);
-            
-            SparseILU<double> preconditioner;
-            preconditioner.initialize (system_matrix.block(1,1),
-                                       SparseILU<double>::AdditionalData());
-            
-            InverseMatrix<SparseMatrix<double>,SparseILU<double> >
-            m_inverse (system_matrix.block(1,1), preconditioner);
-            
-            cg.solve (schur_complement, solution.block(1), schur_rhs,
-                      m_inverse);
-            
-            constraints.distribute (solution);
-            
-            std::cout << "  "
-            << solver_control.last_step()
-            << " outer CG Schur complement iterations for pressure"
-            << std::endl;
-        }
-        
-        {
-            system_matrix.block(0,1).vmult (tmp, solution.block(1));
-            tmp *= -1;
-            tmp += system_rhs.block(0);
-            
-            A_inverse.vmult (solution.block(0), tmp);
-            
-            constraints.distribute (solution);
-        }
+        SparseDirectUMFPACK  A_direct;
+        A_direct.initialize(system_matrix);
+        A_direct.vmult (solution, system_rhs);
     }
+
     
     
     
@@ -578,10 +532,10 @@ namespace Step22
             subdivisions[0] = 4;
             
             const Point<dim> bottom_left = (dim == 2 ?
-                                            Point<dim>(-2,data::bottom) :
+                                            Point<dim>(0,data::bottom) :
                                             Point<dim>(-2,0,-1));
             const Point<dim> top_right   = (dim == 2 ?
-                                            Point<dim>(2,data::top) :
+                                            Point<dim>(1,data::top) :
                                             Point<dim>(2,1,0));
             
             GridGenerator::subdivided_hyper_rectangle (triangulation,
@@ -601,7 +555,7 @@ namespace Step22
 
         
         
-        triangulation.refine_global (6);
+        triangulation.refine_global (3);
         
         for (unsigned int refinement_cycle = 0; refinement_cycle<2;
              ++refinement_cycle)
