@@ -603,13 +603,15 @@ namespace Step22
         
         triangulation.refine_global (6);
         
-        for (unsigned int refinement_cycle = 0; refinement_cycle<2;
+        /* for (unsigned int refinement_cycle = 0; refinement_cycle<2;
              ++refinement_cycle)
         {
             std::cout << "Refinement cycle " << refinement_cycle << std::endl;
             
+            /*
             if (refinement_cycle > 0)
                 refine_mesh ();
+             */
             
             setup_dofs ();
             
@@ -619,10 +621,11 @@ namespace Step22
             std::cout << "   Solving..." << std::flush;
             solve ();
             
-            output_results (refinement_cycle);
+            output_results (1);
             
             std::cout << std::endl;
-        }
+        /* } */
+    
     }
 }
 

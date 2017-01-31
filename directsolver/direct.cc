@@ -69,7 +69,7 @@ namespace Step22
     {
         const double rho_B = 1.0;
         const double eta = 1.0;
-        const double top = 0.1;
+        const double top = 0.2;
         const double bottom = 0.0;
         const double p_top = 0.0;
         const double p_bottom = 1.0;
@@ -275,12 +275,11 @@ namespace Step22
                 {
                     for (unsigned int j=0; j<=i; ++j)
                     {
-                        local_matrix(i,j) += (2 *
+                        local_matrix(i,j) += (2 * data::eta *
                                               scalar_product
                                               (grad_phi_u[i] ,grad_phi_u[j])
                                               - div_phi_u[i] * phi_p[j]
-                                              - phi_p[i] * div_phi_u[j]
-                                              /*+ phi_p[i] * phi_p[j]*/ )
+                                              - phi_p[i] * div_phi_u[j] )
                         * fe_values.JxW(q);
                         
                     }
@@ -290,7 +289,7 @@ namespace Step22
 
                     
                     for (unsigned int i=0; i<dofs_per_cell; ++i)
-                        local_rhs(i) += (data::rho_B *
+                        local_rhs(i) += (-data::rho_B *
                                          gravity * phi_u[i] )*
                                          fe_values.JxW(q);
                 }
@@ -314,6 +313,9 @@ namespace Step22
                     {
                         const double stress_value
                         = data::p_top;
+                        
+                        const Point<dim> direction = ( (dim == 2) ? (Point<dim> (0,1)) :
+                                                    (Point<dim> (0,0,1)) );
                         
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
                             local_rhs(i) += (stress_value *
@@ -456,15 +458,15 @@ namespace Step22
 
         
         
-        triangulation.refine_global (4);
+        triangulation.refine_global (6);
         
-        for (unsigned int refinement_cycle = 0; refinement_cycle<2;
+        /* for (unsigned int refinement_cycle = 0; refinement_cycle<2;
              ++refinement_cycle)
-        {
-            std::cout << "Refinement cycle " << refinement_cycle << std::endl;
+        { */
+            // std::cout << "Refinement cycle " << refinement_cycle << std::endl;
             
-            if (refinement_cycle > 0)
-                refine_mesh ();
+            // if (refinement_cycle > 0)
+              //  refine_mesh ();
             
             setup_dofs ();
             
@@ -474,10 +476,10 @@ namespace Step22
             std::cout << "   Solving..." << std::flush;
             solve ();
             
-            output_results (refinement_cycle);
+            output_results (1);
             
             std::cout << std::endl;
-        }
+        // }
     }
 }
 
