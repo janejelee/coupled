@@ -69,10 +69,10 @@ namespace Step22
     {
         const double rho_B = 1.0;
         const double eta = 1.0;
-        const double top = 0.2;
+        const double top = 1.0;
         const double bottom = 0.0;
         const double p_top = 0.0;
-        const double p_bottom = 1.0;
+        const double p_bottom = 10000.0;
         const int dimension = 2;
         
     }
@@ -318,7 +318,7 @@ namespace Step22
                                                     (Point<dim> (0,0,1)) );
                         
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            local_rhs(i) += (stress_value *
+                            local_rhs(i) += (-stress_value *
                                             fe_face_values.shape_value(i,q_point) *
                                             fe_face_values.JxW(q_point));
                     }
@@ -336,7 +336,7 @@ namespace Step22
                         = data::p_bottom;
                         
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            local_rhs(i) += (stress_value *
+                            local_rhs(i) += (-stress_value *
                                             fe_face_values.shape_value(i,q_point) *
                                             fe_face_values.JxW(q_point));
                     }
