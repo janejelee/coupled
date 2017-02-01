@@ -138,9 +138,9 @@ namespace Step20
   double RightHandSide<dim>::value (const Point<dim>  &/*p*/,
                                     const unsigned int /*component*/) const
   {
-	  const double coeff = data::rho_f * data::lambda ;
+	  const double coeff = 1.0 ;
 
-	  return coeff*0.0;
+	  return coeff;
   }
 
 
@@ -150,7 +150,8 @@ namespace Step20
                                              const unsigned int /*component*/) const
   {
 
-    return -data::rho_f * p[1] + data::p_h + data::top*data::rho_f + 0.0*p[0];
+	  
+   return -0.5*p[1]*p[1] + data::p_h + 50;
   }
 
 
@@ -164,8 +165,8 @@ namespace Step20
             ExcDimensionMismatch (values.size(), dim+1));
 
     values(0) = 0.0;
-    values(1) = -data::lambda*data::rho_f /**data::K*/;
-    values(2) = -data::rho_f * p[1] + data::p_h + data::top*data::rho_f + p[0]*0.0;
+    values(1) = p[1] /**data::K*/;
+    values(2) = -0.5*p[1]*p[1] + data::p_h + 50;
   }
 
 
@@ -274,7 +275,7 @@ namespace Step20
                   cell->face(f)->set_all_boundary_ids(2);
 
 
-    triangulation.refine_global (4);
+    triangulation.refine_global (6);
 
     dof_handler.distribute_dofs (fe);
 
@@ -390,7 +391,7 @@ namespace Step20
                                        * fe_values.JxW(q);
                 }
 
-              local_rhs(i) += phi_i_p * /*k_values[q] **/
+              local_rhs(i) += -phi_i_p * /*k_values[q] **/
                               rhs_values[q] *
                               fe_values.JxW(q);
               // BE CAREFUL HERE ONCE K is not constant or 1 anymore
