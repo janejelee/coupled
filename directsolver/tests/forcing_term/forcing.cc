@@ -126,8 +126,11 @@ namespace Step22
     BoundaryValues<dim>::value (const Point<dim>  &p,
                                 const unsigned int component) const
     {
-
-      return 1.0;
+    		if (component == 0)
+    			return 1.0;
+    		else if (component == 1)
+    			return 1.0;
+      return 0.0;
     }
     template <int dim>
     void
@@ -220,12 +223,14 @@ namespace Step22
                                                       BoundaryValues<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
+/*
 
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
                                                       BoundaryValuesP1<dim>(),
                                                       constraints,
 													  fe.component_mask(pressure));
+*/
 
         }
         
