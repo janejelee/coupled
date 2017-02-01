@@ -127,7 +127,7 @@ namespace Step22
                                 const unsigned int component) const
     {
 
-      return 0;
+      return 1.0;
     }
     template <int dim>
     void
@@ -155,7 +155,7 @@ namespace Step22
                                 const unsigned int component) const
     {
 
-    	return 10.0;
+    	return 0.0;
 
     }
     template <int dim>
@@ -166,88 +166,6 @@ namespace Step22
       for (unsigned int c=0; c<this->n_components; ++c)
         values(c) = BoundaryValuesP1<dim>::value (p, c);
     }
-
-
-    template <int dim>
-    class BoundaryValuesP2 : public Function<dim>
-    {
-    public:
-      BoundaryValuesP2 () : Function<dim>(dim+1) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-      virtual void vector_value (const Point<dim> &p,
-                                 Vector<double>   &value) const;
-    };
-    template <int dim>
-    double
-    BoundaryValuesP2<dim>::value (const Point<dim>  &p,
-                                const unsigned int component) const
-    {
-
-    	return 10.0;
-
-    }
-    template <int dim>
-    void
-    BoundaryValuesP2<dim>::vector_value (const Point<dim> &p,
-                                       Vector<double>   &values) const
-    {
-      for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = BoundaryValuesP2<dim>::value (p, c);
-    }
-
-
-    template <int dim>
-    class BoundaryValuesP0 : public Function<dim>
-    {
-    public:
-      BoundaryValuesP0 () : Function<dim>(dim+1) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-      virtual void vector_value (const Point<dim> &p,
-                                 Vector<double>   &value) const;
-    };
-    template <int dim>
-    double
-    BoundaryValuesP0<dim>::value (const Point<dim>  &p,
-                                const unsigned int component) const
-    {
-    	if (component == 2)
-    		return -p[1]+10.0;
-    	return 0;
-
-    }
-    template <int dim>
-    void
-    BoundaryValuesP0<dim>::vector_value (const Point<dim> &p,
-                                       Vector<double>   &values) const
-    {
-      for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = BoundaryValuesP0<dim>::value (p, c);
-    }
-
-
-
-
-
-
-    template <int dim>
-    class PressureBoundaryValues : public Function<dim>
-    {
-    public:
-      PressureBoundaryValues () : Function<dim>(1) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-    };
-
-    template <int dim>
-    double
-	PressureBoundaryValues<dim>::value (const Point<dim>  &p,
-			const unsigned int /*component*/ ) const
-    {
-      return 10.0;
-    }
-
 
 
     template <int dim>
@@ -308,29 +226,6 @@ namespace Step22
                                                       BoundaryValuesP1<dim>(),
                                                       constraints,
 													  fe.component_mask(pressure));
-
- /*           VectorTools::interpolate_boundary_values (dof_handler,
-                                                      0,
-                                                      BoundaryValuesP0<dim>(),
-                                                      constraints,
-                                                      fe.component_mask(pressure));
-
-
-            VectorTools::interpolate_boundary_values (dof_handler,
-                                                      2,
-                                                      BoundaryValuesP2<dim>(),
-                                                      constraints,
-                                                      fe.component_mask(pressure));
-
-*/
-
-
-            /*std::set<types::boundary_id> no_normal_flux_boundaries;
-            no_normal_flux_boundaries.insert (0);
-            VectorTools::compute_no_normal_flux_constraints (dof_handler, 2,
-                                                             no_normal_flux_boundaries,
-                                                             constraints,
-                                                      fe.component_mask(pressure));*/
 
         }
         
@@ -411,7 +306,6 @@ namespace Step22
         
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
-        const PressureBoundaryValues<dim> pressure_boundary_values;
         std::vector<double> boundary_values (n_face_q_points);
         
         const FEValuesExtractors::Vector velocities (0);
@@ -470,27 +364,6 @@ namespace Step22
 
               }
 
-               /* for (unsigned int face_no=0;
-                     face_no<GeometryInfo<dim>::faces_per_cell;
-                     ++face_no)
-                  if (cell->at_boundary(face_no)
-                	  &&
-                	   (cell->face(face_no)->boundary_id() == 1))
-                    {
-                      fe_face_values.reinit (cell, face_no);
-                      pressure_boundary_values
-                        .value_list (fe_face_values.get_quadrature_points(),
-                                     boundary_values);
-
-                      for (unsigned int q=0; q<n_face_q_points; ++q)
-                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-                          local_rhs(i) += -(fe_face_values[velocities].value (i, q) *
-                                            fe_face_values.normal_vector(q) *
-                                            boundary_values[q] *
-                                            fe_face_values.JxW(q));
-
-
-            }*/
 
 
               cell->get_dof_indices (local_dof_indices);
