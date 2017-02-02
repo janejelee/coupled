@@ -223,14 +223,12 @@ namespace Step22
                                                       BoundaryValues<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
-/*
 
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
                                                       BoundaryValuesP1<dim>(),
                                                       constraints,
-													  fe.component_mask(pressure));
-*/
+                                                      fe.component_mask(pressure));
 
         }
         
@@ -354,7 +352,9 @@ namespace Step22
                         
                     }
                  
-
+                }
+                
+                
                     const Point<dim> gravity = ( (dim == 2) ? (Point<dim> (0,1)) :
                                                  (Point<dim> (0,0,1)) );
 
@@ -363,9 +363,6 @@ namespace Step22
                         local_rhs(i) += (-data::rho_B *
                                          gravity * phi_u[i] )*
                                          fe_values.JxW(q);
-
-                }
-                
 
               }
 
@@ -392,6 +389,8 @@ namespace Step22
         SparseDirectUMFPACK  A_direct;
         A_direct.initialize(system_matrix);
         A_direct.vmult (solution, system_rhs);
+        
+        constraints.distribute (solution);
 
     }
 
