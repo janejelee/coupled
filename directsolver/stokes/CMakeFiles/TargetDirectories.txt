@@ -1,0 +1,10 @@
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/edit_cache.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/rebuild_cache.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/info.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/strip_comments.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/distclean.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/runclean.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/stokes.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/debug.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/run.dir
+/scratch/leej/deal.II/my_examples/coupled/directsolver/stokes/CMakeFiles/release.dir
