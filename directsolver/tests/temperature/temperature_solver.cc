@@ -263,6 +263,15 @@ namespace Step26
                                                        top_right);
         }
         
+        for (typename Triangulation<dim>::active_cell_iterator
+             cell = triangulation.begin_active();
+             cell != triangulation.end(); ++cell)
+            for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
+                if (cell->face(f)->center()[dim-1] == data::top)
+                    cell->face(f)->set_all_boundary_ids(1);
+                else if (cell->face(f)->center()[dim-1] == data::bottom)
+                    cell->face(f)->set_all_boundary_ids(2);
+        
         triangulation.refine_global (initial_global_refinement);
         setup_system();
         unsigned int pre_refinement_step = 0;
@@ -310,7 +319,11 @@ namespace Step26
                 boundary_values_function.set_time(time);
                 std::map<types::global_dof_index, double> boundary_values;
                 VectorTools::interpolate_boundary_values(dof_handler,
-                                                         0,
+                                                         1,
+                                                         boundary_values_function,
+                                                         boundary_values);
+                VectorTools::interpolate_boundary_values(dof_handler,
+                                                         2,
                                                          boundary_values_function,
                                                          boundary_values);
                 MatrixTools::apply_boundary_values(boundary_values,
