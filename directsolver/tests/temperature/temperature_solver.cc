@@ -42,6 +42,9 @@
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/matrix_tools.h>
+#include <deal.II/base/tensor_function.h>
+
+
 #include <fstream>
 #include <iostream>
 namespace Step26
@@ -85,6 +88,7 @@ namespace Step26
         SparsityPattern      sparsity_pattern;
         SparseMatrix<double> mass_matrix;
         SparseMatrix<double> laplace_matrix;
+        SparseMatrix<double> advection_matrix;
         SparseMatrix<double> system_matrix;
         Vector<double>       solution;
         Vector<double>       old_solution;
@@ -112,6 +116,8 @@ namespace Step26
         const double period;
     };
 
+    
+    
         template<int dim>
         double RightHandSide<dim>::value (const Point<dim> &p,
                                           const unsigned int component) const
@@ -119,7 +125,6 @@ namespace Step26
             Assert (component == 0, ExcInternalError());
             Assert (dim == 2, ExcNotImplemented());
             const double time = this->get_time();
-            const double point_within_period = (time/period - std::floor(time/period));
             if ((time >= 0.15) && (time <= 0.2))
             {
                 if ((p[1] > 0.4*data::top) && (p[1] < 0.6*data::top))
@@ -148,6 +153,50 @@ namespace Step26
         Assert(component == 0, ExcInternalError());
         return data::T_0;
     }
+    
+    template <int dim>
+      class AdvectionField : public TensorFunction<1,dim>
+      {
+      public:
+        AdvectionField () : TensorFunction<1,dim> () 
+		{}
+        virtual Tensor<1,dim> value (const Point<dim> &p) const;
+        
+        virtual void value_list (const std::vector<Point<dim> > &points,
+                                 std::vector<Tensor<1,dim> >    &values) const;
+        
+        DeclException2 (ExcDimensionMismatch,
+                        unsigned int, unsigned int,
+                        << "The vector has size " << arg1 << " but should have "
+                        << arg2 << " elements.");
+
+      };
+    
+      template <int dim>
+      Tensor<1,dim>
+      AdvectionField<dim>::value (const Point<dim> &p) const
+      {
+        Point<dim> value;
+        value[0] = p[1]+1;
+        
+        for (unsigned int i=1; i<dim; ++i)
+          value[i] = p[0]+1;
+        
+        return value;
+      }
+      
+      template <int dim>
+      void
+      AdvectionField<dim>::value_list (const std::vector<Point<dim> > &points,
+                                       std::vector<Tensor<1,dim> >    &values) const
+      {
+        Assert (values.size() == points.size(),
+                ExcDimensionMismatch (values.size(), points.size()));
+        
+        for (unsigned int i=0; i<points.size(); ++i)
+          values[i] = AdvectionField<dim>::value (points[i]);
+      }
+
     
     
        template <int dim>
@@ -202,6 +251,7 @@ namespace Step26
         
         mass_matrix.reinit(sparsity_pattern);
         laplace_matrix.reinit(sparsity_pattern);
+        advection_matrix.reinit(sparsity_pattern);
         system_matrix.reinit(sparsity_pattern);
         
         solution.reinit(dof_handler.n_dofs());
@@ -226,11 +276,21 @@ namespace Step26
                                                   update_values         | update_quadrature_points  |
                                                   update_normal_vectors | update_JxW_values);
                 
+                
+                
                  const unsigned int   dofs_per_cell = fe.dofs_per_cell;
                  const unsigned int   n_q_points    = quadrature_formula.size();
                  const unsigned int n_face_q_points = face_quadrature_formula.size();
                  
+                 
+                 const AdvectionField<dim> advection_field;
+                 std::vector<Tensor<1,dim> > advection_directions (n_q_points);
+                 
+                 advection_field.value_list (fe_values.get_quadrature_points(),
+                                             advection_directions);
+                 
                  FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
+                 FullMatrix<double>   cell_advection_matrix (dofs_per_cell, dofs_per_cell);
                  Vector<double>       cell_rhs (dofs_per_cell);
                  
                  std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
@@ -241,19 +301,31 @@ namespace Step26
                  for (; cell!=endc; ++cell)
                  {
                      cell_matrix = 0;
+                     cell_advection_matrix = 0;
                      cell_rhs = 0;
                      
                      fe_values.reinit (cell);
                      
                      for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
                      {
-                                         for (unsigned int i=0; i<dofs_per_cell; ++i)
+                             for (unsigned int i=0; i<dofs_per_cell; ++i)
                          {
                              for (unsigned int j=0; j<dofs_per_cell; ++j)
-                                 cell_matrix(i,j) += (data::kappa *
+                             {
+                                 cell_matrix(i,j) += ( (data::kappa *
                                                       fe_values.shape_grad(i,q_index) *
-                                                      fe_values.shape_grad(j,q_index) *
+                                                      fe_values.shape_grad(j,q_index)) *
                                                       fe_values.JxW(q_index));
+                                 
+                                 std::cout << advection_directions[q_index] << std::endl;
+                             
+                             	 cell_advection_matrix(i,j) += 0.0*
+													  (advection_directions[q_index] * 
+														fe_values.shape_grad(i,q_index) *
+														fe_values.shape_value(j,q_index)
+															  )*fe_values.JxW(q_index);
+                             	 
+                     }
                          }
                      }
                      
@@ -283,6 +355,14 @@ namespace Step26
                                                  local_dof_indices[j],
                                                  cell_matrix(i,j));
                          
+                         for (unsigned int j=0; j<dofs_per_cell; ++j)
+                         {
+                        	 std::cout << cell_advection_matrix(i,j) << std::endl;
+                              advection_matrix.add (local_dof_indices[i],
+                                                    local_dof_indices[j],
+                                                    cell_advection_matrix(i,j));
+                         
+                         }
                          system_rhs_mass(local_dof_indices[i]) += cell_rhs(i);
                      }
                  }
