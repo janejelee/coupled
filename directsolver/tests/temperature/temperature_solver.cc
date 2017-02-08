@@ -55,12 +55,13 @@ namespace Step26
         const double bottom = 0.0;
         
         const double sill_time = 0.1;
-        const double sill_temp = 100.0;
+        const double sill_temp = 1000.0;
         const double temp_top = 0.0;
-        const double kappa = 1.0;
+        const double kappa = 10.0;
         const double final_time = 0.3;
-        const double heat_flux = 0.0;
+        const double heat_flux = -1.0;
         const double timestep = 1./500;
+        const double T_0 = 1.0;
         
     }
     
@@ -88,11 +89,14 @@ namespace Step26
         Vector<double>       solution;
         Vector<double>       old_solution;
         Vector<double>       system_rhs;
+        Vector<double>       system_rhs_mass;
         double               time;
         double               time_step;
         unsigned int         timestep_number;
         const double         theta;
     };
+    
+    
     template<int dim>
     class RightHandSide : public Function<dim>
     {
@@ -127,6 +131,7 @@ namespace Step26
                 return 0;
         }
     
+        
     template<int dim>
     class BoundaryValues : public Function<dim>
     {
@@ -141,7 +146,7 @@ namespace Step26
                                        const unsigned int component) const
     {
         Assert(component == 0, ExcInternalError());
-        return 10.0;
+        return data::T_0;
     }
     
     
@@ -158,7 +163,7 @@ namespace Step26
          double InitialFunction<dim>::value (const Point<dim>  &p,
                                              const unsigned int /*component*/) const
          {
-             return 10.0;
+             return data::T_0 + p[1];
          }
          
 	 
@@ -170,6 +175,8 @@ namespace Step26
     time_step(data::timestep),
     theta(0.5)
     {}
+    
+    
     template<int dim>
     void HeatEquation<dim>::setup_system()
     {
@@ -192,19 +199,100 @@ namespace Step26
                                         constraints,
                                         /*keep_constrained_dofs = */ true);
         sparsity_pattern.copy_from(dsp);
+        
         mass_matrix.reinit(sparsity_pattern);
         laplace_matrix.reinit(sparsity_pattern);
         system_matrix.reinit(sparsity_pattern);
-        MatrixCreator::create_mass_matrix(dof_handler,
-                                          QGauss<dim>(fe.degree+1),
-                                          mass_matrix);
-        MatrixCreator::create_laplace_matrix(dof_handler,
-                                             QGauss<dim>(fe.degree+1),
-                                             laplace_matrix);
+        
         solution.reinit(dof_handler.n_dofs());
         old_solution.reinit(dof_handler.n_dofs());
         system_rhs.reinit(dof_handler.n_dofs());
+        system_rhs_mass.reinit(dof_handler.n_dofs());
+        
+        
+        
+        MatrixCreator::create_mass_matrix(dof_handler,
+                                          QGauss<dim>(fe.degree+1),
+                                          mass_matrix);
+        
+                QGauss<dim>  quadrature_formula(2);
+                QGauss<dim-1> face_quadrature_formula(2);
+                
+                
+                FEValues<dim> fe_values (fe, quadrature_formula,
+                                          update_values    |  update_gradients |
+                                         update_quadrature_points  |  update_JxW_values);
+                FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
+                                                  update_values         | update_quadrature_points  |
+                                                  update_normal_vectors | update_JxW_values);
+                
+                 const unsigned int   dofs_per_cell = fe.dofs_per_cell;
+                 const unsigned int   n_q_points    = quadrature_formula.size();
+                 const unsigned int n_face_q_points = face_quadrature_formula.size();
+                 
+                 FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
+                 Vector<double>       cell_rhs (dofs_per_cell);
+                 
+                 std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+                 
+                typename DoFHandler<dim>::active_cell_iterator
+                 cell = dof_handler.begin_active(),
+                 endc = dof_handler.end();
+                 for (; cell!=endc; ++cell)
+                 {
+                     cell_matrix = 0;
+                     cell_rhs = 0;
+                     
+                     fe_values.reinit (cell);
+                     
+                     for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
+                     {
+                                         for (unsigned int i=0; i<dofs_per_cell; ++i)
+                         {
+                             for (unsigned int j=0; j<dofs_per_cell; ++j)
+                                 cell_matrix(i,j) += (data::kappa *
+                                                      fe_values.shape_grad(i,q_index) *
+                                                      fe_values.shape_grad(j,q_index) *
+                                                      fe_values.JxW(q_index));
+                         }
+                     }
+                     
+                     // Heat flux for right hand side
+                     for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                       if (cell->face(face_number)->at_boundary()
+                           &&
+                           (cell->face(face_number)->boundary_id() == 2))
+                         {
+                           fe_face_values.reinit (cell, face_number);
+                           
+                           for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                             {
+                        	   // see step-7
+                               for (unsigned int i=0; i<dofs_per_cell; ++i)
+                                 cell_rhs(i) += -(data::heat_flux *
+                                                 fe_face_values.shape_value(i,q_point) *
+                                                 fe_face_values.JxW(q_point));
+                             }
+                         }
+                     
+                     cell->get_dof_indices (local_dof_indices);
+                     for (unsigned int i=0; i<dofs_per_cell; ++i)
+                     {
+                         for (unsigned int j=0; j<dofs_per_cell; ++j)
+                             laplace_matrix.add (local_dof_indices[i],
+                                                 local_dof_indices[j],
+                                                 cell_matrix(i,j));
+                         
+                         system_rhs_mass(local_dof_indices[i]) += cell_rhs(i);
+                     }
+                 }
+        
+        
+
     }
+    
+    
+    
     template<int dim>
     void HeatEquation<dim>::solve_time_step()
     {
@@ -212,12 +300,16 @@ namespace Step26
         SolverCG<> cg(solver_control);
         PreconditionSSOR<> preconditioner;
         preconditioner.initialize(system_matrix, 1.0);
+        
         cg.solve(system_matrix, solution, system_rhs,
                  preconditioner);
+        
         constraints.distribute(solution);
         std::cout << "     " << solver_control.last_step()
         << " CG iterations." << std::endl;
     }
+    
+    
     template<int dim>
     void HeatEquation<dim>::output_results() const
     {
@@ -231,6 +323,8 @@ namespace Step26
         std::ofstream output(filename.c_str());
         data_out.write_vtk(output);
     }
+    
+    
     template <int dim>
     void HeatEquation<dim>::refine_mesh (const unsigned int min_grid_level,
                                          const unsigned int max_grid_level)
@@ -253,21 +347,28 @@ namespace Step26
              cell = triangulation.begin_active(min_grid_level);
              cell != triangulation.end_active(min_grid_level); ++cell)
             cell->clear_coarsen_flag ();
+        
         SolutionTransfer<dim> solution_trans(dof_handler);
         Vector<double> previous_solution;
         previous_solution = solution;
+        
         triangulation.prepare_coarsening_and_refinement();
         solution_trans.prepare_for_coarsening_and_refinement(previous_solution);
         triangulation.execute_coarsening_and_refinement ();
+        
         setup_system ();
+        
         solution_trans.interpolate(previous_solution, solution);
         constraints.distribute (solution);
     }
+    
+    
     template<int dim>
     void HeatEquation<dim>::run()
     {
         const unsigned int initial_global_refinement = 2;
         const unsigned int n_adaptive_pre_refinement_steps = 4;
+        
         {
             std::vector<unsigned int> subdivisions (dim, 1);
             subdivisions[0] = 4;
@@ -295,35 +396,52 @@ namespace Step26
                     cell->face(f)->set_all_boundary_ids(2);
         
         triangulation.refine_global (initial_global_refinement);
+        
         setup_system();
+        
         unsigned int pre_refinement_step = 0;
         Vector<double> tmp;
         Vector<double> forcing_terms;
-    start_time_iteration:
+        
+        start_time_iteration:
+		
         tmp.reinit (solution.size());
         forcing_terms.reinit (solution.size());
+        
         VectorTools::interpolate(dof_handler,
                                  InitialFunction<dim>(),
                                  old_solution);
+        
         solution = old_solution;
+        
         timestep_number = 0;
-        time            = 0;
+        time            = 0;      
+        
         output_results();
         while (time <= data::final_time)
         {
             time += time_step;
             ++timestep_number;
+            
             std::cout << "Time step " << timestep_number << " at t=" << time
             << std::endl;
+            
             mass_matrix.vmult(system_rhs, old_solution);
+            
+
             laplace_matrix.vmult(tmp, old_solution);
             system_rhs.add(-(1 - theta) * time_step, tmp);
+            
+            system_rhs += system_rhs_mass; // Neumann conditions
+            
             RightHandSide<dim> rhs_function;
             rhs_function.set_time(time);
+            
             VectorTools::create_right_hand_side(dof_handler,
                                                 QGauss<dim>(fe.degree+1),
                                                 rhs_function,
                                                 tmp);
+            
             forcing_terms = tmp;
             forcing_terms *= time_step * theta;
             rhs_function.set_time(time - time_step);
@@ -331,11 +449,15 @@ namespace Step26
                                                 QGauss<dim>(fe.degree+1),
                                                 rhs_function,
                                                 tmp);
+            
             forcing_terms.add(time_step * (1 - theta), tmp);
             system_rhs += forcing_terms;
+            
+            
             system_matrix.copy_from(mass_matrix);
             system_matrix.add(theta * time_step, laplace_matrix);
             constraints.condense (system_matrix, system_rhs);
+            
             {
                 BoundaryValues<dim> boundary_values_function;
                 boundary_values_function.set_time(time);
@@ -344,17 +466,17 @@ namespace Step26
                                                          1,
                                                          boundary_values_function,
                                                          boundary_values);
-                VectorTools::interpolate_boundary_values(dof_handler,
-                                                         2,
-                                                         boundary_values_function,
-                                                         boundary_values);
+
                 MatrixTools::apply_boundary_values(boundary_values,
                                                    system_matrix,
                                                    solution,
                                                    system_rhs);
             }
+            
             solve_time_step();
+            
             output_results();
+            
             if ((timestep_number == 1) &&
                 (pre_refinement_step < n_adaptive_pre_refinement_steps))
             {
@@ -377,13 +499,15 @@ namespace Step26
         }
     }
 }
+
+
 int main()
 {
     try
     {
         using namespace dealii;
         using namespace Step26;
-        HeatEquation<2> heat_equation_solver;
+        HeatEquation<data::dimension> heat_equation_solver;
         heat_equation_solver.run();
     }
     catch (std::exception &exc)
