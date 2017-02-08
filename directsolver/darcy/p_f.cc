@@ -61,13 +61,22 @@ namespace Step20
 
   namespace data
   {
+  	  const int problem_degree = 1;
+  	  const int refinement_level = 5;
+  	  const int dimension = 2;
+  			  
       const double rho_f = 1.0;
       const double eta = 1.0;
-      const double top = 10.0;
-      const double bottom = 0.0;
-      const int dimension = 2;
+      
+      const double top = 5.0;
+      const double bottom = 0.0;      
+      const double left = 0.0;
+      const double right = 20.0;
+     
       const double lambda = 1.0;
+      
       const double p_h = 100.0;
+
 
   }
 
@@ -90,6 +99,7 @@ namespace Step20
     Triangulation<dim>   triangulation;
     FESystem<dim>        fe;
     DoFHandler<dim>      dof_handler;
+    ConstraintMatrix     constraints;
 
     BlockSparsityPattern      sparsity_pattern;
     BlockSparseMatrix<double> system_matrix;
@@ -98,6 +108,37 @@ namespace Step20
     BlockVector<double>       system_rhs;
   };
 
+  
+
+  template <int dim>
+  class BoundaryValuesu : public Function<dim>
+  {
+  public:
+    BoundaryValuesu () : Function<dim>(dim+1) {}
+    virtual double value (const Point<dim>   &p,
+                          const unsigned int  component = 0) const;
+    virtual void vector_value (const Point<dim> &p,
+                               Vector<double>   &value) const;
+  };
+  template <int dim>
+  double
+  BoundaryValuesu<dim>::value (const Point<dim>  &p,
+                              const unsigned int component) const
+  {
+  		if (component == 0)
+  			return 0.0;
+  		else if (component == 1)
+  			return 1.0;
+    return 0.0;
+  }
+  template <int dim>
+  void
+  BoundaryValuesu<dim>::vector_value (const Point<dim> &p,
+                                     Vector<double>   &values) const
+  {
+    for (unsigned int c=0; c<this->n_components; ++c)
+      values(c) = BoundaryValuesu<dim>::value (p, c);
+  }
 
 
   template <int dim>
@@ -135,12 +176,11 @@ namespace Step20
 
 
   template <int dim>
-  double RightHandSide<dim>::value (const Point<dim>  &/*p*/,
+  double RightHandSide<dim>::value (const Point<dim>  &p,
                                     const unsigned int /*component*/) const
   {
-	  const double coeff = 1.0 ;
 
-	  return coeff;
+	  return -1./(data::top*data::top)*2.0*data::lambda*data::rho_f*p[1];
   }
 
 
@@ -151,7 +191,7 @@ namespace Step20
   {
 
 	  
-   return -0.5*p[1]*p[1] + data::p_h + 50;
+   return -(2.0/3.0)*data::rho_f*data::top;
   }
 
 
@@ -165,8 +205,8 @@ namespace Step20
             ExcDimensionMismatch (values.size(), dim+1));
 
     values(0) = 0.0;
-    values(1) = p[1] /**data::K*/;
-    values(2) = -0.5*p[1]*p[1] + data::p_h + 50;
+    values(1) = data::lambda*data::rho_f * (1- 1./(data::top*data::top) * p[1]*p[1]);
+    values(2) = -data::rho_f*(p[1] - (1.0/3.0)*(1./(data::top*data::top))*p[1]*p[1]*p[1]);
   }
 
 
@@ -252,10 +292,10 @@ namespace Step20
           subdivisions[0] = 4;
 
           const Point<dim> bottom_left = (dim == 2 ?
-                                          Point<dim>(0,data::bottom) :
+                                          Point<dim>(data::left,data::bottom) :
                                           Point<dim>(-2,0,-1));
           const Point<dim> top_right   = (dim == 2 ?
-                                          Point<dim>(40,data::top) :
+                                          Point<dim>(data::right,data::top) :
                                           Point<dim>(0,1,0));
 
           GridGenerator::subdivided_hyper_rectangle (triangulation,
@@ -275,16 +315,21 @@ namespace Step20
                   cell->face(f)->set_all_boundary_ids(2);
 
 
-    triangulation.refine_global (6);
+    triangulation.refine_global (data::refinement_level);
 
     dof_handler.distribute_dofs (fe);
-
-    DoFRenumbering::component_wise (dof_handler);
-
+ 
+    
+ DoFRenumbering::component_wise (dof_handler);
     std::vector<types::global_dof_index> dofs_per_component (dim+1);
     DoFTools::count_dofs_per_component (dof_handler, dofs_per_component);
     const unsigned int n_u = dofs_per_component[0],
                        n_p = dofs_per_component[dim];
+    
+/*    std::vector<types::global_dof_index> dofs_per_block (2);
+    DoFTools::count_dofs_per_block (dof_handler, dofs_per_block, block_component);
+    const unsigned int n_u = dofs_per_block[0],
+                       n_p = dofs_per_block[1];*/
 
     std::cout << "Number of active cells: "
               << triangulation.n_active_cells()
@@ -303,7 +348,7 @@ namespace Step20
     dsp.block(0, 1).reinit (n_u, n_p);
     dsp.block(1, 1).reinit (n_p, n_p);
     dsp.collect_sizes ();
-    DoFTools::make_sparsity_pattern (dof_handler, dsp);
+    DoFTools::make_sparsity_pattern (dof_handler, dsp, constraints, false);
 
     sparsity_pattern.copy_from(dsp);
     system_matrix.reinit (sparsity_pattern);
@@ -401,7 +446,9 @@ namespace Step20
         for (unsigned int face_no=0;
              face_no<GeometryInfo<dim>::faces_per_cell;
              ++face_no)
-          if (cell->at_boundary(face_no))
+          if (cell->face(face_no)->at_boundary()
+                  &&
+                  (cell->face(face_no)->boundary_id() == 1))
             {
               fe_face_values.reinit (cell, face_no);
 
@@ -427,6 +474,25 @@ namespace Step20
         for (unsigned int i=0; i<dofs_per_cell; ++i)
           system_rhs(local_dof_indices[i]) += local_rhs(i);
       }
+    
+    std::map<types::global_dof_index, double> boundary_values_flux; 
+    {
+            types::global_dof_index n_dofs = dof_handler.n_dofs();
+            std::vector<bool> componentVector(dim + 1, true);
+            componentVector[dim] = false;
+            std::vector<bool> selected_dofs(n_dofs);
+            std::set< types::boundary_id > boundary_ids;
+            boundary_ids.insert(0);
+            DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
+                    selected_dofs, boundary_ids);
+
+            for (types::global_dof_index i = 0; i < n_dofs; i++) {
+                if (selected_dofs[i]) boundary_values_flux[i] = 0.0;
+            }
+    }
+    MatrixTools::apply_boundary_values(boundary_values_flux,
+            system_matrix, solution, system_rhs);
+    
   }
 
 
@@ -441,6 +507,7 @@ namespace Step20
       A_direct.initialize(system_matrix);
       A_direct.vmult (solution, system_rhs);
 
+    /*  constraints.distribute (solution);*/
   }
 
 
@@ -542,7 +609,7 @@ int main ()
       using namespace dealii;
       using namespace Step20;
 
-      MixedLaplaceProblem<2> mixed_laplace_problem(0);
+      MixedLaplaceProblem<data::dimension> mixed_laplace_problem(data::problem_degree);
       mixed_laplace_problem.run ();
     }
   catch (std::exception &exc)
