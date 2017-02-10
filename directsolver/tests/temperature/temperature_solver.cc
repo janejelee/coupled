@@ -154,6 +154,8 @@ namespace Step26
         return data::T_0;
     }
     
+    
+    
     template <int dim>
       class AdvectionField : public TensorFunction<1,dim>
       {
@@ -165,10 +167,7 @@ namespace Step26
         virtual void value_list (const std::vector<Point<dim> > &points,
                                  std::vector<Tensor<1,dim> >    &values) const;
         
-        DeclException2 (ExcDimensionMismatch,
-                        unsigned int, unsigned int,
-                        << "The vector has size " << arg1 << " but should have "
-                        << arg2 << " elements.");
+
 
       };
     
@@ -177,10 +176,8 @@ namespace Step26
       AdvectionField<dim>::value (const Point<dim> &p) const
       {
         Point<dim> value;
-        value[0] = p[1]+1;
-        
-        for (unsigned int i=1; i<dim; ++i)
-          value[i] = p[0]+1;
+        value[0] = 0.0;
+          value[1] = 1.0;
         
         return value;
       }
@@ -212,7 +209,7 @@ namespace Step26
          double InitialFunction<dim>::value (const Point<dim>  &p,
                                              const unsigned int /*component*/) const
          {
-             return data::T_0 + p[1];
+             return data::T_0 + (data::top-p[1]);
          }
          
 	 
@@ -280,12 +277,13 @@ namespace Step26
                 
                  const unsigned int   dofs_per_cell = fe.dofs_per_cell;
                  const unsigned int   n_q_points    = quadrature_formula.size();
-                 const unsigned int n_face_q_points = face_quadrature_formula.size();
-                 
+                 const unsigned int   n_face_q_points = face_quadrature_formula.size();
+        
+               // std::cout << n_q_points << std::endl;
                  
                  const AdvectionField<dim> advection_field;
                  std::vector<Tensor<1,dim> > advection_directions (n_q_points);
-                 
+     
                  advection_field.value_list (fe_values.get_quadrature_points(),
                                              advection_directions);
                  
@@ -308,6 +306,8 @@ namespace Step26
                      
                      for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
                      {
+                         // std::cout << advection_directions[q_index] << std::endl;
+                         
                              for (unsigned int i=0; i<dofs_per_cell; ++i)
                          {
                              for (unsigned int j=0; j<dofs_per_cell; ++j)
@@ -317,13 +317,16 @@ namespace Step26
                                                       fe_values.shape_grad(j,q_index)) *
                                                       fe_values.JxW(q_index));
                                  
-                                 std::cout << advection_directions[q_index] << std::endl;
+                                 
+                                 
+                                 
                              
                              	 cell_advection_matrix(i,j) += 0.0*
 													  (advection_directions[q_index] * 
 														fe_values.shape_grad(i,q_index) *
 														fe_values.shape_value(j,q_index)
 															  )*fe_values.JxW(q_index);
+                                 
                              	 
                      }
                          }
@@ -355,9 +358,9 @@ namespace Step26
                                                  local_dof_indices[j],
                                                  cell_matrix(i,j));
                          
-                         for (unsigned int j=0; j<dofs_per_cell; ++j)
+                        for (unsigned int j=0; j<dofs_per_cell; ++j)
                          {
-                        	 std::cout << cell_advection_matrix(i,j) << std::endl;
+                        	 //std::cout << cell_advection_matrix(i,j) << std::endl;
                               advection_matrix.add (local_dof_indices[i],
                                                     local_dof_indices[j],
                                                     cell_advection_matrix(i,j));
