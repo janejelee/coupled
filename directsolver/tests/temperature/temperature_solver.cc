@@ -50,21 +50,28 @@
 namespace Step26
 {
     using namespace dealii;
+    using namespace numbers;
     
     namespace data
     {
         const int dimension = 2;
-        const double top = 10.0;
+        const int degree = 2 ;
+        const double top = 1.0;
         const double bottom = 0.0;
+        const double right = PI;
         
         const double sill_time = 0.1;
         const double sill_temp = 1000.0;
         const double temp_top = 0.0;
         const double kappa = 10.0;
-        const double final_time = 0.3;
         const double heat_flux = -1.0;
-        const double timestep = 1./500;
+        const double timestep = 0.01;
         const double T_0 = 1.0;
+        
+        
+        const double final_time = 15*timestep;
+        const double error_time = 13;
+    
         
     }
     
@@ -73,14 +80,17 @@ namespace Step26
     class HeatEquation
     {
     public:
-        HeatEquation();
+        HeatEquation (const unsigned int degree);
         void run();
     private:
         void setup_system();
         void solve_time_step();
         void output_results() const;
+        void error_analysis();
         void refine_mesh (const unsigned int min_grid_level,
                           const unsigned int max_grid_level);
+        
+        const unsigned int degree;
         Triangulation<dim>   triangulation;
         FE_Q<dim>            fe;
         DoFHandler<dim>      dof_handler;
@@ -122,7 +132,17 @@ namespace Step26
         double RightHandSide<dim>::value (const Point<dim> &p,
                                           const unsigned int component) const
         {
-            Assert (component == 0, ExcInternalError());
+            const double time = this->get_time();
+            
+            return (data::kappa *((PI/data::right)*(PI/data::right) +
+                                   (PI/data::top)*(PI/data::top)) - PI)*
+            (std::cos(PI*p[0]/data::right)*std::sin(PI*p[1]/data::top)*
+             std::exp(- PI * time)) +
+            (std::cos(PI *p[0]/data::right) * std::cos(PI *p[1]/data::top)*
+             std::exp(-PI * time) * PI/p[1]);
+            
+            
+            /*Assert (component == 0, ExcInternalError());
             Assert (dim == 2, ExcNotImplemented());
             const double time = this->get_time();
             if ((time >= 0.15) && (time <= 0.2))
@@ -134,6 +154,7 @@ namespace Step26
             }
             else
                 return 0;
+             */
         }
     
         
@@ -151,7 +172,30 @@ namespace Step26
                                        const unsigned int component) const
     {
         Assert(component == 0, ExcInternalError());
-        return data::T_0;
+        const double time = this->get_time();
+        return time;
+    }
+    
+    
+    template<int dim>
+    class HeatFluxValues : public Function<dim>
+    {
+    public:
+        HeatFluxValues () : Function<dim>() {}
+        virtual double value (const Point<dim>  &p,
+                              const unsigned int component = 0) const;
+    };
+    
+    
+    template<int dim>
+    double HeatFluxValues<dim>::value (const Point<dim> &p,
+                                       const unsigned int component) const
+    {
+        
+        const double time = this->get_time();
+        
+        return (PI / data::top)*std::exp(-PI*time)*std::cos(PI*p[0]/data::right
+                                                                     ) ;
     }
     
     
@@ -209,14 +253,40 @@ namespace Step26
          double InitialFunction<dim>::value (const Point<dim>  &p,
                                              const unsigned int /*component*/) const
          {
-             return data::T_0 + (data::top-p[1]);
+             const double time = this->get_time();
+             return (std::cos(PI*p[0]/data::right)*std::sin(PI*p[1]/data::top)
+                     ) + time;
          }
-         
+    
+    template <int dim>
+    class ExactSolution : public Function<dim>
+    {
+    public:
+        ExactSolution () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double ExactSolution<dim>::value (const Point<dim>  &p,
+                                        const unsigned int /*component*/) const
+    {
+        const double time = this->get_time();
+        
+        return  (std::cos(PI * p[0] / data::right)* std::sin(PI*p[1]/data::top) ) *
+                std::exp(-PI*time) + time;
+
+    }
+    
+    
+    
+    
 	 
     template<int dim>
-    HeatEquation<dim>::HeatEquation ()
+    HeatEquation<dim>::HeatEquation (const unsigned int degree)
     :
-    fe(1),
+    degree (degree),
+    fe(degree+1),
     dof_handler(triangulation),
     time_step(data::timestep),
     theta(0.5)
@@ -227,6 +297,7 @@ namespace Step26
     void HeatEquation<dim>::setup_system()
     {
         dof_handler.distribute_dofs(fe);
+        /*
         std::cout << std::endl
         << "==========================================="
         << std::endl
@@ -234,7 +305,8 @@ namespace Step26
         << std::endl
         << "Number of degrees of freedom: " << dof_handler.n_dofs()
         << std::endl
-        << std::endl;
+        << std::endl;*/
+        
         constraints.clear ();
         DoFTools::make_hanging_node_constraints (dof_handler,
                                                  constraints);
@@ -259,11 +331,11 @@ namespace Step26
         
         
         MatrixCreator::create_mass_matrix(dof_handler,
-                                          QGauss<dim>(fe.degree+1),
+                                          QGauss<dim>(fe.degree+2),
                                           mass_matrix);
         
-                QGauss<dim>  quadrature_formula(2);
-                QGauss<dim-1> face_quadrature_formula(2);
+                QGauss<dim>  quadrature_formula(degree+2);
+                QGauss<dim-1> face_quadrature_formula(degree+2);
                 
                 
                 FEValues<dim> fe_values (fe, quadrature_formula,
@@ -279,14 +351,18 @@ namespace Step26
                  const unsigned int   n_q_points    = quadrature_formula.size();
                  const unsigned int   n_face_q_points = face_quadrature_formula.size();
         
-               // std::cout << n_q_points << std::endl;
                  
                  const AdvectionField<dim> advection_field;
                  std::vector<Tensor<1,dim> > advection_directions (n_q_points);
      
                  advection_field.value_list (fe_values.get_quadrature_points(),
                                              advection_directions);
-                 
+        
+        
+                const HeatFluxValues<dim> heatflux;
+                std::vector<double> heatflux_values (n_face_q_points);
+        
+        
                  FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
                  FullMatrix<double>   cell_advection_matrix (dofs_per_cell, dofs_per_cell);
                  Vector<double>       cell_rhs (dofs_per_cell);
@@ -306,7 +382,6 @@ namespace Step26
                      
                      for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
                      {
-                         // std::cout << advection_directions[q_index] << std::endl;
                          
                              for (unsigned int i=0; i<dofs_per_cell; ++i)
                          {
@@ -331,24 +406,7 @@ namespace Step26
                      }
                          }
                      }
-                     
-                     // Heat flux for right hand side
-                     for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-                       if (cell->face(face_number)->at_boundary()
-                           &&
-                           (cell->face(face_number)->boundary_id() == 2))
-                         {
-                           fe_face_values.reinit (cell, face_number);
-                           
-                           for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                             {
-                        	   // see step-7
-                               for (unsigned int i=0; i<dofs_per_cell; ++i)
-                                 cell_rhs(i) += -(data::heat_flux *
-                                                 fe_face_values.shape_value(i,q_point) *
-                                                 fe_face_values.JxW(q_point));
-                             }
-                         }
+
                      
                      cell->get_dof_indices (local_dof_indices);
                      for (unsigned int i=0; i<dofs_per_cell; ++i)
@@ -360,13 +418,12 @@ namespace Step26
                          
                         for (unsigned int j=0; j<dofs_per_cell; ++j)
                          {
-                        	 //std::cout << cell_advection_matrix(i,j) << std::endl;
                               advection_matrix.add (local_dof_indices[i],
                                                     local_dof_indices[j],
                                                     cell_advection_matrix(i,j));
                          
                          }
-                         system_rhs_mass(local_dof_indices[i]) += cell_rhs(i);
+                         
                      }
                  }
         
@@ -375,6 +432,7 @@ namespace Step26
     }
     
     
+
     
     template<int dim>
     void HeatEquation<dim>::solve_time_step()
@@ -388,8 +446,11 @@ namespace Step26
                  preconditioner);
         
         constraints.distribute(solution);
+        /*
         std::cout << "     " << solver_control.last_step()
         << " CG iterations." << std::endl;
+         
+         */
     }
     
     
@@ -408,10 +469,12 @@ namespace Step26
     }
     
     
+    
     template <int dim>
     void HeatEquation<dim>::refine_mesh (const unsigned int min_grid_level,
                                          const unsigned int max_grid_level)
     {
+        /*
         Vector<float> estimated_error_per_cell (triangulation.n_active_cells());
         KellyErrorEstimator<dim>::estimate (dof_handler,
                                             QGauss<dim-1>(fe.degree+1),
@@ -442,7 +505,11 @@ namespace Step26
         setup_system ();
         
         solution_trans.interpolate(previous_solution, solution);
+        */
+        triangulation.refine_global(1);
+        
         constraints.distribute (solution);
+        
     }
     
     
@@ -460,7 +527,7 @@ namespace Step26
                                             Point<dim>(0,data::bottom) :
                                             Point<dim>(-2,0,-1));
             const Point<dim> top_right   = (dim == 2 ?
-                                            Point<dim>(40,data::top) :
+                                            Point<dim>(data::right,data::top) :
                                             Point<dim>(0,1,0));
             
             GridGenerator::subdivided_hyper_rectangle (triangulation,
@@ -478,9 +545,11 @@ namespace Step26
                 else if (cell->face(f)->center()[dim-1] == data::bottom)
                     cell->face(f)->set_all_boundary_ids(2);
         
-        triangulation.refine_global (initial_global_refinement);
+        triangulation.refine_global (initial_global_refinement+2);
         
         setup_system();
+        
+        
         
         unsigned int pre_refinement_step = 0;
         Vector<double> tmp;
@@ -506,16 +575,84 @@ namespace Step26
             time += time_step;
             ++timestep_number;
             
-            std::cout << "Time step " << timestep_number << " at t=" << time
-            << std::endl;
+            // std::cout << "Time step " << timestep_number << " at t=" << time
+            // << std::endl;
+            
+            // ///////////
             
             mass_matrix.vmult(system_rhs, old_solution);
-            
-
+        
             laplace_matrix.vmult(tmp, old_solution);
             system_rhs.add(-(1 - theta) * time_step, tmp);
             
-            system_rhs += system_rhs_mass; // Neumann conditions
+            advection_matrix.vmult(tmp, old_solution);
+            system_rhs.add(-(1 - theta) * time_step, tmp);
+            
+            
+            system_rhs_mass.reinit(dof_handler.n_dofs());
+            
+            
+            QGauss<dim-1> face_quadrature_formula(2);
+            
+            FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
+                                              update_values         | update_quadrature_points  |
+                                              update_normal_vectors | update_JxW_values);
+            
+            const unsigned int   n_face_q_points = face_quadrature_formula.size();
+            
+            
+            const HeatFluxValues<dim> heatflux;
+            std::vector<double> heatflux_values (n_face_q_points);
+            
+            
+           const unsigned int   dofs_per_cell = fe.dofs_per_cell;
+            Vector<double>       cell_rhs (dofs_per_cell);
+            
+           std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+            
+            typename DoFHandler<dim>::active_cell_iterator
+            cell = dof_handler.begin_active(),
+            endc = dof_handler.end();
+            for (; cell!=endc; ++cell)
+            {
+                cell_rhs = 0;
+                
+                
+                
+                // Heat flux for right hand side
+                for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                    if (cell->face(face_number)->at_boundary()
+                        &&
+                        (cell->face(face_number)->boundary_id() == 2))
+                    {
+                        fe_face_values.reinit (cell, face_number);
+                        
+                        heatflux.value_list (fe_face_values.get_quadrature_points(),
+                                             heatflux_values);
+                        
+                        for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                        {
+                            // see step-7
+                            for (unsigned int i=0; i<dofs_per_cell; ++i)
+                                cell_rhs(i) += -( heatflux_values[q_point]*
+                                                 fe_face_values.shape_value(i,q_point) *
+                                                 fe_face_values.JxW(q_point));
+                            // std::cout << heatflux_values[q_point] << std::endl;
+                        }
+                    }
+                
+                cell->get_dof_indices (local_dof_indices);
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
+                {
+                    
+                    system_rhs_mass(local_dof_indices[i]) += cell_rhs(i);
+                }
+            }
+            
+            
+            // system_rhs += system_rhs_mass; // Neumann conditions
+            
+            //
             
             RightHandSide<dim> rhs_function;
             rhs_function.set_time(time);
@@ -537,8 +674,11 @@ namespace Step26
             system_rhs += forcing_terms;
             
             
+            // ////////
+            
             system_matrix.copy_from(mass_matrix);
             system_matrix.add(theta * time_step, laplace_matrix);
+            system_matrix.add(theta * time_step, advection_matrix);
             constraints.condense (system_matrix, system_rhs);
             
             {
@@ -549,22 +689,60 @@ namespace Step26
                                                          1,
                                                          boundary_values_function,
                                                          boundary_values);
+                
+                VectorTools::interpolate_boundary_values(dof_handler,
+                                                         2,
+                                                         boundary_values_function,
+                                                         boundary_values);
+                
+                
 
                 MatrixTools::apply_boundary_values(boundary_values,
                                                    system_matrix,
                                                    solution,
                                                    system_rhs);
+                
+                
+            HeatFluxValues<dim> heatflux_function;
+            heatflux_function.set_time(time);
+                
+                
+            
             }
             
             solve_time_step();
             
+            //if (timestep_number == data::error_time)
+                {
+            ExactSolution<dim> exact_solution;
+                exact_solution.set_time(time);
+            Vector<double> difference_per_cell (triangulation.n_active_cells());
+                    std::cout << triangulation.n_active_cells() << std::endl;
+            
+            const QTrapez<1>     q_trapez;
+            const QIterated<dim> quadrature (q_trapez, degree+2);
+            
+            VectorTools::integrate_difference (dof_handler,
+                                               solution,
+                                               exact_solution,
+                                               difference_per_cell,
+                                               quadrature,
+                                               VectorTools::L2_norm);
+            
+            const double L2_error = difference_per_cell.l2_norm();
+            
+            std::cout << "Errors: L2 = " << L2_error << std::endl;
+                }
+            
             output_results();
+            
+       /*
             
             if ((timestep_number == 1) &&
                 (pre_refinement_step < n_adaptive_pre_refinement_steps))
             {
-                refine_mesh (initial_global_refinement,
-                             initial_global_refinement + n_adaptive_pre_refinement_steps);
+                //refine_mesh (initial_global_refinement,
+                  //           initial_global_refinement + n_adaptive_pre_refinement_steps);
                 ++pre_refinement_step;
                 tmp.reinit (solution.size());
                 forcing_terms.reinit (solution.size());
@@ -573,14 +751,17 @@ namespace Step26
             }
             else if ((timestep_number > 0) && (timestep_number % 5 == 0))
             {
-                refine_mesh (initial_global_refinement,
-                             initial_global_refinement + n_adaptive_pre_refinement_steps);
+                //refine_mesh (initial_global_refinement,
+                  //           initial_global_refinement + n_adaptive_pre_refinement_steps);
                 tmp.reinit (solution.size());
                 forcing_terms.reinit (solution.size());
             }
+            
+            */
             old_solution = solution;
         }
     }
+
 }
 
 
@@ -590,9 +771,10 @@ int main()
     {
         using namespace dealii;
         using namespace Step26;
-        HeatEquation<data::dimension> heat_equation_solver;
+        HeatEquation<data::dimension> heat_equation_solver(data::degree);
         heat_equation_solver.run();
-    }
+        
+        }
     catch (std::exception &exc)
     {
         std::cerr << std::endl << std::endl
