@@ -137,7 +137,7 @@ namespace Step26
             return (data::kappa *((PI/data::right)*(PI/data::right) +
                                    (PI/data::top)*(PI/data::top)) - PI)*
             (std::cos(PI*p[0]/data::right)*std::sin(PI*p[1]/data::top)*
-             std::exp(- PI * time)) +
+             std::exp(- PI * time)) + 
             (std::cos(PI *p[0]/data::right) * std::cos(PI *p[1]/data::top)*
              std::exp(-PI * time) * PI/p[1]);
             
@@ -172,8 +172,9 @@ namespace Step26
                                        const unsigned int component) const
     {
         Assert(component == 0, ExcInternalError());
-        const double time = this->get_time();
-        return time;
+  
+        
+        return data::T_0;
     }
     
     
@@ -195,7 +196,8 @@ namespace Step26
         const double time = this->get_time();
         
         return (PI / data::top)*std::exp(-PI*time)*std::cos(PI*p[0]/data::right
-                                                                     ) ;
+                                                                     ) 
+        * data::kappa;
     }
     
     
@@ -224,6 +226,7 @@ namespace Step26
           value[1] = 1.0;
         
         return value;
+        
       }
       
       template <int dim>
@@ -253,9 +256,9 @@ namespace Step26
          double InitialFunction<dim>::value (const Point<dim>  &p,
                                              const unsigned int /*component*/) const
          {
-             const double time = this->get_time();
+          
              return (std::cos(PI*p[0]/data::right)*std::sin(PI*p[1]/data::top)
-                     ) + time;
+                     ) + data::T_0;
          }
     
     template <int dim>
@@ -274,7 +277,7 @@ namespace Step26
         const double time = this->get_time();
         
         return  (std::cos(PI * p[0] / data::right)* std::sin(PI*p[1]/data::top) ) *
-                std::exp(-PI*time) + time;
+                std::exp(-PI*time) + data::T_0;
 
     }
     
@@ -396,7 +399,7 @@ namespace Step26
                                  
                                  
                              
-                             	 cell_advection_matrix(i,j) += 0.0*
+                             	 cell_advection_matrix(i,j) += 
 													  (advection_directions[q_index] * 
 														fe_values.shape_grad(i,q_index) *
 														fe_values.shape_value(j,q_index)
@@ -601,7 +604,9 @@ namespace Step26
             const unsigned int   n_face_q_points = face_quadrature_formula.size();
             
             
-            const HeatFluxValues<dim> heatflux;
+            HeatFluxValues<dim> heatflux;
+            heatflux.set_time(time);
+            
             std::vector<double> heatflux_values (n_face_q_points);
             
             
@@ -650,7 +655,7 @@ namespace Step26
             }
             
             
-            // system_rhs += system_rhs_mass; // Neumann conditions
+          // system_rhs += system_rhs_mass; // Neumann conditions
             
             //
             
@@ -664,6 +669,7 @@ namespace Step26
             
             forcing_terms = tmp;
             forcing_terms *= time_step * theta;
+            
             rhs_function.set_time(time - time_step);
             VectorTools::create_right_hand_side(dof_handler,
                                                 QGauss<dim>(fe.degree+1),
@@ -694,6 +700,7 @@ namespace Step26
                                                          2,
                                                          boundary_values_function,
                                                          boundary_values);
+
                 
                 
 
