@@ -26,6 +26,7 @@
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/matrix_tools.h>
+#include <deal.II/lac/sparse_direct.h>
 
 #include <deal.II/base/tensor_function.h>
 
@@ -113,7 +114,7 @@ namespace Step26
                                         const unsigned int /*component*/) const
     {
         
-        return 0.0;
+        return p[0]+p[1];
     }
     
     template <int dim>
@@ -131,7 +132,7 @@ namespace Step26
     {
         const double time = this->get_time();
         
-        return  time;
+        return  p[0]+p[1]+time;
         
     }
     
@@ -184,7 +185,7 @@ namespace Step26
         Assert(component == 0, ExcInternalError());
         const double time = this->get_time();
         
-        return time;
+        return p[0]+p[1]+time;
     }
     
     
@@ -209,8 +210,8 @@ namespace Step26
     AdvectionField<dim>::value (const Point<dim> &p) const
     {
         Point<dim> value;
-        value[0] = 0.0;
-        value[1] = 0.0;
+        value[0] = 1.0;
+        value[1] = -1.0;
         
         return value;
         
@@ -275,7 +276,7 @@ namespace Step26
                     cell->face(f)->set_all_boundary_ids(2);
          */
         
-        triangulation.refine_global (initial_global_refinement+2);
+        triangulation.refine_global (initial_global_refinement+3);
 
         
         dof_handler.distribute_dofs(fe);
@@ -326,6 +327,21 @@ namespace Step26
                                           QGauss<dim>(fe.degree+1),
                                           mass_matrix);
    
+        
+    }
+    
+    template <int dim>
+    void PorosityEquation<dim>::assemble_rhs ()
+    {
+        Vector<double> tmp;
+        tmp.reinit (solution.size());
+        
+        system_rhs=0;
+        
+        mass_matrix.vmult(system_rhs, old_solution);
+        
+        
+        
         QGauss<dim>  quadrature_formula(data::degree+2);
         QGauss<dim-1> face_quadrature_formula(data::degree+2);
         
@@ -346,10 +362,7 @@ namespace Step26
                                     advection_directions);
         
         
-        
-        FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
         FullMatrix<double>   cell_advection_matrix (dofs_per_cell, dofs_per_cell);
-        Vector<double>       cell_rhs (dofs_per_cell);
         
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
@@ -358,9 +371,7 @@ namespace Step26
         endc = dof_handler.end();
         for (; cell!=endc; ++cell)
         {
-            cell_matrix = 0;
             cell_advection_matrix = 0;
-            cell_rhs = 0;
             
             fe_values.reinit (cell);
             
@@ -372,10 +383,10 @@ namespace Step26
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
                         cell_advection_matrix(i,j) +=
-                            (advection_directions[q_index] *
-                             fe_values.shape_grad(i,q_index) *
-                             fe_values.shape_value(j,q_index)
-                             )*fe_values.JxW(q_index);
+                        (advection_directions[q_index] *
+                         fe_values.shape_grad(i,q_index) *
+                         fe_values.shape_value(j,q_index)
+                         )*fe_values.JxW(q_index);
                         
                     }
                 }
@@ -385,7 +396,7 @@ namespace Step26
             cell->get_dof_indices (local_dof_indices);
             for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
-
+                
                 
                 for (unsigned int j=0; j<dofs_per_cell; ++j)
                 {
@@ -396,16 +407,7 @@ namespace Step26
                 
             }
         }
-        
-    }
-    
-    template <int dim>
-    void PorosityEquation<dim>::assemble_rhs ()
-    {
-        Vector<double> tmp;
-        tmp.reinit (solution.size());
-        
-        mass_matrix.vmult(system_rhs, old_solution);
+
         
         advection_matrix.vmult(tmp, old_solution);
         system_rhs.add(-time_step, tmp);
@@ -422,77 +424,16 @@ namespace Step26
         
         
         system_rhs.add(time_step, tmp);
-        
-
-
-        /*
-        QGauss<dim>   quadrature_formula(degree+2);
-        
-        FEValues<dim> fe_values (fe, quadrature_formula,
-                                 update_values    | update_gradients |
-                                 update_quadrature_points  | update_JxW_values);
-
-        
-        const unsigned int   dofs_per_cell   = fe.dofs_per_cell;
-        const unsigned int   n_q_points      = quadrature_formula.size();
-        
-        Vector<double>       local_rhs (dofs_per_cell);
-        
-        std::vector<Vector<double> > old_solution_values(n_q_points, Vector<double>);
-        std::vector<Vector<double> > present_solution_values(n_q_points, Vector<double>);
-        
-        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-        BoundaryValues<dim> boundary_values;
-        
-        
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = dof_handler.begin_active(),
-        endc = dof_handler.end();
-        for (; cell!=endc; ++cell)
-        {
-            local_rhs = 0;
-            fe_values.reinit (cell);
-            fe_values.get_function_values (old_solution, old_solution_values);
-            fe_values.get_function_values (solution, present_solution_values);
-            
-            for (unsigned int q=0; q<n_q_points; ++q)
-                for (unsigned int i=0; i<dofs_per_cell; ++i)
-                {
-                    const double old_s = old_solution_values[q](dim+1);
-                    Tensor<1,dim> present_u;
-                    
-                    for (unsigned int d=0; d<dim; ++d)
-                        present_u[d] = present_solution_values[q](d);
-                    const double        phi_i_s      = fe_values[saturation].value (i, q);
-                    const Tensor<1,dim> grad_phi_i_s = fe_values[saturation].gradient (i, q);
-                    local_rhs(i) += (time_step *
-                                     fractional_flow(old_s,viscosity) *
-                                     present_u *
-                                     grad_phi_i_s
-                                     +
-                                     old_s * phi_i_s)
-                    *
-                    fe_values.JxW(q);
-                }
-            cell->get_dof_indices (local_dof_indices);
-            for (unsigned int i=0; i<dofs_per_cell; ++i)
-                system_rhs(local_dof_indices[i]) += local_rhs(i);
-        }
-         */
-    }
+            }
     
     
     template<int dim>
     void PorosityEquation<dim>::solve_time_step()
     {
-        SolverControl solver_control(1000, 1e-8 * system_rhs.l2_norm());
-        SolverCG<> cg(solver_control);
         
-        PreconditionSSOR<> preconditioner;
-        preconditioner.initialize(system_matrix, 1.0);
-        
-        cg.solve(system_matrix, solution, system_rhs,
-                 preconditioner);
+        SparseDirectUMFPACK  A_direct;
+        A_direct.initialize(system_matrix);
+        A_direct.vmult (solution, system_rhs);
         
         constraints.distribute(solution);
         
@@ -532,9 +473,6 @@ namespace Step26
         setup_system();
         
         unsigned int pre_refinement_step = 0;
-        
-        Vector<double> tmp;
-        tmp.reinit (solution.size());
         
         
         VectorTools::interpolate(dof_handler,
