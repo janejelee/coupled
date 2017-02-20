@@ -81,6 +81,7 @@ namespace Step9
         void make_grid_and_dofs ();
         
         void assemble_system ();
+        void assemble_rhs ();
 
         void solve ();
         void error_analysis ();
@@ -286,11 +287,8 @@ namespace Step9
     AdvectionProblem<dim>::assemble_system ()
     {
         system_matrix = 0;
-        system_rhs=0;
-        
         
         FullMatrix<double>                   cell_matrix;
-        Vector<double>                       cell_rhs;
         std::vector<types::global_dof_index> local_dof_indices;
         
         QGauss<dim>  quadrature_formula(data::degree+2);
@@ -306,7 +304,6 @@ namespace Step9
 
         
         const AdvectionField<dim> advection_field;
-        const RightHandSide<dim>  right_hand_side;
         const BoundaryValues<dim> boundary_values;
         
         const unsigned int dofs_per_cell   = fe.dofs_per_cell;
@@ -315,11 +312,8 @@ namespace Step9
         
         
         cell_matrix.reinit (dofs_per_cell, dofs_per_cell);
-        cell_rhs.reinit (dofs_per_cell);
         local_dof_indices.resize(dofs_per_cell);
         
-        
-        std::vector<double>         rhs_values (n_q_points);
         std::vector<Tensor<1,dim> > advection_directions (n_q_points);
         std::vector<double>         face_boundary_values (n_face_q_points);
         std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
@@ -330,14 +324,10 @@ namespace Step9
         for (; cell!=endc; ++cell)
         {
             cell_matrix = 0;
-            cell_rhs = 0;
             
         fe_values.reinit (cell);
         advection_field.value_list (fe_values.get_quadrature_points(),
                                     advection_directions);
-        right_hand_side.value_list (fe_values.get_quadrature_points(),
-                                    rhs_values);
-        
         
         const double delta = 0.1 * cell->diameter ();
         for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
@@ -351,12 +341,6 @@ namespace Step9
                                                      (advection_directions[q_point] *
                                                       fe_values.shape_grad(i,q_point)))) *
                                                    fe_values.JxW(q_point));
-                cell_rhs(i) += ((fe_values.shape_value(i,q_point) +
-                                           delta *
-                                           (advection_directions[q_point] *
-                                            fe_values.shape_grad(i,q_point))        ) *
-                                          rhs_values[q_point] *
-                                          fe_values.JxW (q_point));
             }
         
         for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
@@ -379,11 +363,6 @@ namespace Step9
                                                                fe_face_values.shape_value(i,q_point) *
                                                                fe_face_values.shape_value(j,q_point) *
                                                                fe_face_values.JxW(q_point));
-                            cell_rhs(i) -= (face_advection_directions[q_point] *
-                                                      fe_face_values.normal_vector(q_point) *
-                                                      face_boundary_values[q_point]         *
-                                                      fe_face_values.shape_value(i,q_point) *
-                                                      fe_face_values.JxW(q_point));
                             
                         }
             }
@@ -397,15 +376,114 @@ namespace Step9
                 system_matrix.add (local_dof_indices[i],
                                    local_dof_indices[j],
                                    cell_matrix(i,j));
-            system_rhs(local_dof_indices[i]) += cell_rhs(i);
         }
         }
         
         hanging_node_constraints.condense (system_matrix);
-        hanging_node_constraints.condense (system_rhs);
         
     }
     
+    
+    template <int dim>
+    void
+    AdvectionProblem<dim>::assemble_rhs ()
+    {
+        system_rhs=0;
+        
+        Vector<double>                       cell_rhs;
+        std::vector<types::global_dof_index> local_dof_indices;
+        
+        QGauss<dim>  quadrature_formula(data::degree+2);
+        QGauss<dim-1> face_quadrature_formula(data::degree+2);
+        
+        
+        FEValues<dim> fe_values (fe, quadrature_formula,
+                                 update_values    |  update_gradients |
+                                 update_quadrature_points  |  update_JxW_values);
+        FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
+                                          update_values | update_quadrature_points |
+                                          update_JxW_values | update_normal_vectors);
+        
+        
+        const AdvectionField<dim> advection_field;
+        const RightHandSide<dim>  right_hand_side;
+        const BoundaryValues<dim> boundary_values;
+        
+        const unsigned int dofs_per_cell   = fe.dofs_per_cell;
+        const unsigned int n_q_points      = fe_values.get_quadrature().size();
+        const unsigned int n_face_q_points = fe_face_values.get_quadrature().size();
+        
+        
+        cell_rhs.reinit (dofs_per_cell);
+        local_dof_indices.resize(dofs_per_cell);
+        
+        
+        std::vector<double>         rhs_values (n_q_points);
+        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
+        std::vector<double>         face_boundary_values (n_face_q_points);
+        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
+        
+        typename DoFHandler<dim>::active_cell_iterator
+        cell = dof_handler.begin_active(),
+        endc = dof_handler.end();
+        for (; cell!=endc; ++cell)
+        {
+            cell_rhs = 0;
+            
+            fe_values.reinit (cell);
+            advection_field.value_list (fe_values.get_quadrature_points(),
+                                        advection_directions);
+            right_hand_side.value_list (fe_values.get_quadrature_points(),
+                                        rhs_values);
+            
+            
+            const double delta = 0.1 * cell->diameter ();
+            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
+                {
+                    cell_rhs(i) += ((fe_values.shape_value(i,q_point) +
+                                     delta *
+                                     (advection_directions[q_point] *
+                                      fe_values.shape_grad(i,q_point))        ) *
+                                    rhs_values[q_point] *
+                                    fe_values.JxW (q_point));
+                }
+            
+            for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
+                if (cell->face(face)->at_boundary())
+                {
+                    fe_face_values.reinit (cell, face);
+                    boundary_values.value_list (fe_face_values.get_quadrature_points(),
+                                                face_boundary_values);
+                    advection_field.value_list (fe_face_values.get_quadrature_points(),
+                                                face_advection_directions);
+                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                        if (fe_face_values.normal_vector(q_point) *
+                            face_advection_directions[q_point]
+                            < 0)
+                            for (unsigned int i=0; i<dofs_per_cell; ++i)
+                            {
+                                cell_rhs(i) -= (face_advection_directions[q_point] *
+                                                fe_face_values.normal_vector(q_point) *
+                                                face_boundary_values[q_point]         *
+                                                fe_face_values.shape_value(i,q_point) *
+                                                fe_face_values.JxW(q_point));
+                                
+                            }
+                }
+            
+            cell->get_dof_indices (local_dof_indices);
+            
+            
+            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
+            {
+                system_rhs(local_dof_indices[i]) += cell_rhs(i);
+            }
+        }
+        
+        hanging_node_constraints.condense (system_rhs);
+        
+    }
     
     
     template <int dim>
@@ -453,6 +531,7 @@ namespace Step9
         
             make_grid_and_dofs();
             assemble_system ();
+            assemble_rhs ();
 
             std::cout << "   Number of active cells:       "
             << triangulation.n_active_cells()
