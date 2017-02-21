@@ -56,13 +56,13 @@ namespace Step9
     namespace data
     {
         const int dimension = 2;
-        const int degree = 2 ;
+        const int degree = 4 ;
         const double top = 1.0;
         const double bottom = 0.0;
         const double right = PI;
         
         const double timestep = 0.01;
-        const double final_time = 15*timestep;
+        const double final_time = 5*timestep;
         const double error_time = 13;
         
         const int global_refinement_level = 4;
@@ -162,7 +162,7 @@ namespace Step9
                                const unsigned int  component) const
     {
 
-        return 0;
+        return 1;
     }
     template <int dim>
     void
@@ -193,8 +193,8 @@ namespace Step9
     BoundaryValues<dim>::value (const Point<dim>   &p,
                                 const unsigned int  component) const
     {
-
-        return p[0]*p[1];
+    	const double time = this->get_time();
+        return p[0]*p[1]+time;
     }
     
     
@@ -224,8 +224,8 @@ namespace Step9
     double ExactSolution<dim>::value (const Point<dim>  &p,
                                       const unsigned int /*component*/) const
     {
-        
-        return  p[1]*p[0];
+    	const double time = this->get_time();
+        return  p[1]*p[0]+time;
         
     }
     
@@ -253,7 +253,7 @@ namespace Step9
     AdvectionProblem<dim>::AdvectionProblem ()
     :
     dof_handler (triangulation),
-    fe(1)
+    fe(data::degree)
     {}
     
     
@@ -319,7 +319,7 @@ namespace Step9
         nontime_matrix = 0;
         
         MatrixCreator::create_mass_matrix(dof_handler,
-                                          QGauss<dim>(fe.degree+1),
+                                          QGauss<dim>(data::degree+2),
                                           mass_matrix);
         
         FullMatrix<double>                   cell_matrix;
@@ -339,7 +339,6 @@ namespace Step9
 
         
         const AdvectionField<dim> advection_field;
-        const BoundaryValues<dim> boundary_values;
         
         const unsigned int dofs_per_cell   = fe.dofs_per_cell;
         const unsigned int n_q_points      = fe_values.get_quadrature().size();
@@ -350,7 +349,6 @@ namespace Step9
         local_dof_indices.resize(dofs_per_cell);
         
         std::vector<Tensor<1,dim> > advection_directions (n_q_points);
-        std::vector<double>         face_boundary_values (n_face_q_points);
         std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
         
         typename DoFHandler<dim>::active_cell_iterator
@@ -382,8 +380,6 @@ namespace Step9
             if (cell->face(face)->at_boundary())
             {
                 fe_face_values.reinit (cell, face);
-                boundary_values.value_list (fe_face_values.get_quadrature_points(),
-                                            face_boundary_values);
                 advection_field.value_list (fe_face_values.get_quadrature_points(),
                                             face_advection_directions);
                 for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
@@ -442,7 +438,8 @@ namespace Step9
         
         const AdvectionField<dim> advection_field;
         const RightHandSide<dim>  right_hand_side;
-        const BoundaryValues<dim> boundary_values;
+        BoundaryValues<dim> boundary_values;
+        boundary_values.set_time(time);
         
         const unsigned int dofs_per_cell   = fe.dofs_per_cell;
         const unsigned int n_q_points      = fe_values.get_quadrature().size();
@@ -537,7 +534,8 @@ namespace Step9
     {
         
             ExactSolution<dim> exact_solution;
-        
+            exact_solution.set_time(time);
+            
             Vector<double> difference_per_cell (triangulation.n_active_cells());
             
             const QTrapez<1>     q_trapez;
@@ -588,7 +586,9 @@ namespace Step9
     void AdvectionProblem<dim>::run ()
     {
 
-        
+            timestep_number = 0;
+            time            = 0;
+            
             make_grid_and_dofs();
             assemble_system ();
             
@@ -598,13 +598,13 @@ namespace Step9
             
             solution = old_solution;
             
-            timestep_number = 0;
-            time            = 0;
+
             output_results();
+            time_step = data::timestep;
             
             while (time <= data::final_time)
             {
-                time += data::timestep;
+                time += time_step;
                 ++timestep_number;
                 
                 std::cout << "Time step " << timestep_number << " at t=" << time
