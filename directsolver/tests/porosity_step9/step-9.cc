@@ -85,6 +85,7 @@ namespace Step9
 
         void solve ();
         void error_analysis ();
+        void output_results ();
         
         
         Triangulation<dim>   triangulation;
@@ -93,8 +94,16 @@ namespace Step9
         ConstraintMatrix     hanging_node_constraints;
         SparsityPattern      sparsity_pattern;
         SparseMatrix<double> system_matrix;
+        SparseMatrix<double> mass_matrix;
+        SparseMatrix<double> nontime_matrix;
         Vector<double>       solution;
+        Vector<double>		 old_solution;
         Vector<double>       system_rhs;
+        Vector<double>		 nontime_rhs;
+        
+        double               time;
+        double               time_step;
+        unsigned int         timestep_number;
     };
     
     
@@ -220,7 +229,23 @@ namespace Step9
         
     }
     
-   
+    
+    template <int dim>
+    class InitialFunction : public Function<dim>
+    {
+    public:
+        InitialFunction () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double InitialFunction<dim>::value (const Point<dim>  &p,
+                                        const unsigned int /*component*/) const
+    {
+        
+        return p[1]*p[0];
+    }
     
     
     
@@ -274,8 +299,12 @@ namespace Step9
                                         /*keep_constrained_dofs = */ true);
         sparsity_pattern.copy_from (dsp);
         system_matrix.reinit (sparsity_pattern);
+        mass_matrix.reinit (sparsity_pattern);
+        nontime_matrix.reinit (sparsity_pattern);
         solution.reinit (dof_handler.n_dofs());
+        old_solution.reinit(dof_handler.n_dofs());
         system_rhs.reinit (dof_handler.n_dofs());
+        nontime_rhs.reinit (dof_handler.n_dofs());
     }
     
     
@@ -287,8 +316,14 @@ namespace Step9
     AdvectionProblem<dim>::assemble_system ()
     {
         system_matrix = 0;
+        nontime_matrix = 0;
+        
+        MatrixCreator::create_mass_matrix(dof_handler,
+                                          QGauss<dim>(fe.degree+1),
+                                          mass_matrix);
         
         FullMatrix<double>                   cell_matrix;
+        
         std::vector<types::global_dof_index> local_dof_indices;
         
         QGauss<dim>  quadrature_formula(data::degree+2);
@@ -325,8 +360,8 @@ namespace Step9
         {
             cell_matrix = 0;
             
-        fe_values.reinit (cell);
-        advection_field.value_list (fe_values.get_quadrature_points(),
+            fe_values.reinit (cell);
+            advection_field.value_list (fe_values.get_quadrature_points(),
                                     advection_directions);
         
         const double delta = 0.1 * cell->diameter ();
@@ -367,19 +402,18 @@ namespace Step9
                         }
             }
         
-        cell->get_dof_indices (local_dof_indices);
+        	cell->get_dof_indices (local_dof_indices);
         
 
-        for (unsigned int i=0; i<local_dof_indices.size(); ++i)
-        {
-            for (unsigned int j=0; j<local_dof_indices.size(); ++j)
-                system_matrix.add (local_dof_indices[i],
+        	for (unsigned int i=0; i<local_dof_indices.size(); ++i)
+        		{
+        			for (unsigned int j=0; j<local_dof_indices.size(); ++j)
+        					nontime_matrix.add (local_dof_indices[i],
                                    local_dof_indices[j],
                                    cell_matrix(i,j));
-        }
+        		}
         }
         
-        hanging_node_constraints.condense (system_matrix);
         
     }
     
@@ -389,6 +423,7 @@ namespace Step9
     AdvectionProblem<dim>::assemble_rhs ()
     {
         system_rhs=0;
+        nontime_rhs=0;
         
         Vector<double>                       cell_rhs;
         std::vector<types::global_dof_index> local_dof_indices;
@@ -477,11 +512,11 @@ namespace Step9
             
             for (unsigned int i=0; i<local_dof_indices.size(); ++i)
             {
-                system_rhs(local_dof_indices[i]) += cell_rhs(i);
+                nontime_rhs(local_dof_indices[i]) += cell_rhs(i);
             }
         }
         
-        hanging_node_constraints.condense (system_rhs);
+ 
         
     }
     
@@ -522,6 +557,31 @@ namespace Step9
 
     }
     
+    template <int dim>
+    void AdvectionProblem<dim>::output_results ()
+	{
+    	
+    	DataOut<dim> data_out;
+    	        
+    	data_out.attach_dof_handler(dof_handler);
+    	data_out.add_data_vector(solution, "U");
+    	        
+    	data_out.build_patches();
+    	        
+    	const std::string filename = "solution-"
+    	+ Utilities::int_to_string(timestep_number, 3) +
+    	".vtk";
+    	std::ofstream output(filename.c_str());
+    	data_out.write_vtk(output);
+    	
+/*        DataOut<dim> data_out;
+        data_out.attach_dof_handler (dof_handler);
+        data_out.add_data_vector (solution, "solution");
+        data_out.build_patches ();
+        std::ofstream output ("final-solution.vtk");
+        data_out.write_vtk (output);*/
+	}
+    
     
 
     template <int dim>
@@ -531,25 +591,52 @@ namespace Step9
         
             make_grid_and_dofs();
             assemble_system ();
-            assemble_rhs ();
+            
+            VectorTools::interpolate(dof_handler,
+            		InitialFunction<dim>(),
+					old_solution);
+            
+            solution = old_solution;
+            
+            timestep_number = 0;
+            time            = 0;
+            output_results();
+            
+            while (time <= data::final_time)
+            {
+                time += data::timestep;
+                ++timestep_number;
+                
+                std::cout << "Time step " << timestep_number << " at t=" << time
+                          << std::endl;
+                
+                assemble_rhs ();
+                
+                mass_matrix.vmult(system_rhs, old_solution);
+                system_rhs.add(time_step,nontime_rhs);
+                
+            	system_matrix.copy_from(mass_matrix);
+            	system_matrix.add(time_step,nontime_matrix);
+            	
+            	hanging_node_constraints.condense (system_rhs);
+            	hanging_node_constraints.condense (system_matrix);
+            	
 
-            std::cout << "   Number of active cells:       "
-            << triangulation.n_active_cells()
-            << std::endl;
+            	std::cout << "   Number of active cells:       "
+            			<< triangulation.n_active_cells()
+						<< std::endl;
         
-            std::cout << "   Number of degrees of freedom: "
-            << dof_handler.n_dofs()
-            << std::endl;
+            	std::cout << "   Number of degrees of freedom: "
+            			<< dof_handler.n_dofs()
+						<< std::endl;
 
-            solve ();
-            error_analysis();
-        
-            DataOut<dim> data_out;
-            data_out.attach_dof_handler (dof_handler);
-            data_out.add_data_vector (solution, "solution");
-            data_out.build_patches ();
-            std::ofstream output ("final-solution.vtk");
-            data_out.write_vtk (output);
+            	solve ();
+            	output_results ();
+            	error_analysis();
+            	
+            	old_solution = solution;
+            }
+
     }
 
     
