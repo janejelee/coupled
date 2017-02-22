@@ -45,6 +45,8 @@
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/matrix_tools.h>
+#include <deal.II/base/tensor_function.h>
+#include <deal.II/lac/sparse_direct.h>
 
 #include <fstream>
 #include <iostream>
@@ -58,7 +60,7 @@ namespace Step26
     namespace data
     {
         const int dimension = 2;
-        const int degree = 2 ;
+        const int degree = 1 ;
         const double top = 1.0;
         const double bottom = 0.0;
         const double right = PI;
@@ -68,10 +70,10 @@ namespace Step26
         const double temp_top = 0.0;
         const double kappa = 1.0;
         const double heat_flux = -1.0;
-        const double timestep = 0.01;
         const double T_0 = 1.0;
         
         
+        const double timestep = 0.001;
         const double final_time = 15*timestep;
         const double error_time = 13;
         
@@ -187,15 +189,12 @@ namespace Step26
     public:
         RightHandSide ()
         :
-        Function<dim>(),
-        period (0.2)
+        Function<dim>()
         {}
         
         virtual double value (const Point<dim> &p,
                               const unsigned int component = 0) const;
         
-    private:
-        const double period;
     };
     
     
@@ -235,7 +234,7 @@ namespace Step26
     template<int dim>
     HeatEquation<dim>::HeatEquation ()
     :
-    fe(1),
+    fe(data::degree),
     dof_handler(triangulation),
     time_step(data::timestep),
     theta(0.5)
@@ -276,6 +275,7 @@ namespace Step26
         MatrixCreator::create_mass_matrix(dof_handler,
                                           QGauss<dim>(fe.degree+1),
                                           mass_matrix);
+        
         MatrixCreator::create_laplace_matrix(dof_handler,
                                              QGauss<dim>(fe.degree+1),
                                              laplace_matrix);
@@ -290,19 +290,13 @@ namespace Step26
     template<int dim>
     void HeatEquation<dim>::solve_time_step()
     {
-        SolverControl solver_control(1000, 1e-8 * system_rhs.l2_norm());
-        SolverCG<> cg(solver_control);
+        SparseDirectUMFPACK  A_direct;
+        A_direct.initialize(system_matrix);
+        A_direct.vmult (solution, system_rhs);
         
-        PreconditionSSOR<> preconditioner;
-        preconditioner.initialize(system_matrix, 1.0);
-        
-        cg.solve(system_matrix, solution, system_rhs,
-                 preconditioner);
         
         constraints.distribute(solution);
         
-        std::cout << "     " << solver_control.last_step()
-        << " CG iterations." << std::endl;
     }
     
     
@@ -458,7 +452,7 @@ namespace Step26
             
             {
             
-            QGauss<dim-1> face_quadrature_formula(2);
+                QGauss<dim-1> face_quadrature_formula(data::degree+1);
             
             FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
                                               update_values         | update_quadrature_points  |
@@ -466,7 +460,7 @@ namespace Step26
             
             const unsigned int   n_face_q_points = face_quadrature_formula.size();
             
-            
+            /*
             HeatFluxValues<dim> heatflux;
             heatflux.set_time(time);
             
@@ -518,7 +512,7 @@ namespace Step26
             
             
             system_rhs += system_rhs_mass; // Neumann conditions
-            
+            */
             //
         }
         
@@ -538,6 +532,10 @@ namespace Step26
                                                          1,
                                                          boundary_values_function,
                                                          boundary_values);
+                VectorTools::interpolate_boundary_values(dof_handler,
+                                                         2,
+                                                         boundary_values_function,
+                                                         boundary_values);
                 
                 
                 MatrixTools::apply_boundary_values(boundary_values,
@@ -549,7 +547,7 @@ namespace Step26
             solve_time_step();
             
             output_results();
-            
+            /*
             if ((timestep_number == 1) &&
                 (pre_refinement_step < n_adaptive_pre_refinement_steps))
             {
@@ -571,7 +569,7 @@ namespace Step26
                 tmp.reinit (solution.size());
                 forcing_terms.reinit (solution.size());
             }
-             
+             */
             {
                 ExactSolution<dim> exact_solution;
                 exact_solution.set_time(time);
