@@ -46,8 +46,8 @@ namespace Step7
         const double bottom = 0.0;
         const double right = PI;
         
-        const double timestep = 0.0000001;
-        const double final_time = 11*timestep;
+        const double timestep = 1e-6;
+        const double final_time = 4*timestep;
         const double error_time = 13;
         
         
@@ -86,8 +86,8 @@ namespace Step7
     double Solution<dim>::value (const Point<dim>   &p,
                                  const unsigned int) const
     {
-
-        return -p[1]*p[1];
+        const double time = this->get_time();
+        return std::cos(PI*p[0])*std::sin(PI*p[1])*std::exp(-time) + 1;
     }
     
     
@@ -95,10 +95,11 @@ namespace Step7
     Tensor<1,dim> Solution<dim>::gradient (const Point<dim>   &p,
                                            const unsigned int) const
     {
+        const double time = this->get_time();
         Tensor<1,dim> return_value;
 
-        return_value[0] = 0;
-        return_value[1] = -2*p[1];
+        return_value[0] = -PI*std::sin(PI*p[0])*std::sin(PI*p[1])*exp(-time);
+        return_value[1] =  PI*std::cos(PI*p[0])*std::cos(PI*p[1])*exp(-time);
         
         return return_value;
     }
@@ -121,10 +122,30 @@ namespace Step7
     double RightHandSide<dim>::value (const Point<dim>   &p,
                                       const unsigned int) const
     {
-        return 2.0-p[1]*p[1];
+        
+        const double time = this->get_time();
+        return (2*PI*PI-1)*std::cos(PI*p[0])*std::sin(PI*p[1])*exp(-time);
     }
     
     
+    template <int dim>
+    class InitialFunction : public Function<dim>
+    {
+    public:
+        InitialFunction () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double InitialFunction<dim>::value (const Point<dim>  &p,
+                                        const unsigned int /*component*/) const
+    {
+        
+        return std::cos(PI*p[0])*std::sin(PI*p[1]) + 1;
+    }
+    
+
     
     template <int dim>
     class HelmholtzProblem
@@ -143,12 +164,13 @@ namespace Step7
         void run ();
         
     private:
-        void setup_system ();
+        void setup_dofs ();
         void assemble_system ();
         void assemble_rhs ();
         void solve ();
         void refine_grid ();
         void process_solution (const unsigned int cycle);
+        void output_results ();
         void table ();
         
         Triangulation<dim>                      triangulation;
@@ -168,11 +190,18 @@ namespace Step7
         
         Vector<double>		 old_solution;
         Vector<double>		 nontime_rhs;
+        
+        
+        double               time;
+        double               time_step;
+        unsigned int         timestep_number;
+
 
         
         const RefinementMode                    refinement_mode;
         
         ConvergenceTable                        convergence_table;
+        ConvergenceTable                            convergence_table_rate;
     };
     
     
@@ -197,7 +226,7 @@ namespace Step7
     
     
     template <int dim>
-    void HelmholtzProblem<dim>::setup_system ()
+    void HelmholtzProblem<dim>::setup_dofs ()
     {
         dof_handler.distribute_dofs (*fe);
         DoFRenumbering::Cuthill_McKee (dof_handler);
@@ -312,10 +341,13 @@ namespace Step7
                                           update_values         | update_quadrature_points  |
                                           update_normal_vectors | update_JxW_values);
         
-        const RightHandSide<dim> right_hand_side;
+        RightHandSide<dim> right_hand_side;
         std::vector<double>  rhs_values (n_q_points);
         
-        const Solution<dim> exact_solution;
+        right_hand_side.set_time(time);
+        
+        Solution<dim> exact_solution;
+        exact_solution.set_time(time);
         
         typename DoFHandler<dim>::active_cell_iterator
         cell = dof_handler.begin_active(),
@@ -429,6 +461,7 @@ namespace Step7
     template <int dim>
     void HelmholtzProblem<dim>::process_solution (const unsigned int cycle)
     {
+
         Vector<float> difference_per_cell (triangulation.n_active_cells());
         VectorTools::integrate_difference (dof_handler,
                                            solution,
@@ -475,6 +508,13 @@ namespace Step7
         convergence_table.add_value("H1", H1_error);
         convergence_table.add_value("Linfty", Linfty_error);
         
+        convergence_table.set_precision("L2", 3);
+        convergence_table.set_precision("H1", 3);
+        convergence_table.set_precision("Linfty", 3);
+        
+        convergence_table.set_scientific("L2", true);
+        convergence_table.set_scientific("H1", true);
+        convergence_table.set_scientific("Linfty", true);
         
     }
     
@@ -517,28 +557,27 @@ namespace Step7
         
         data_out.build_patches (fe->degree);
         data_out.write_vtk (output);
+    
+    
+        convergence_table_rate.set_precision("L2", 3);
+        convergence_table_rate.set_precision("H1", 3);
+        convergence_table_rate.set_precision("Linfty", 3);
         
+        convergence_table_rate.set_scientific("L2", true);
+        convergence_table_rate.set_scientific("H1", true);
+        convergence_table_rate.set_scientific("Linfty", true);
         
-        
-        convergence_table.set_precision("L2", 3);
-        convergence_table.set_precision("H1", 3);
-        convergence_table.set_precision("Linfty", 3);
-        
-        convergence_table.set_scientific("L2", true);
-        convergence_table.set_scientific("H1", true);
-        convergence_table.set_scientific("Linfty", true);
-        
-        convergence_table.set_tex_caption("cells", "\\# cells");
-        convergence_table.set_tex_caption("dofs", "\\# dofs");
-        convergence_table.set_tex_caption("L2", "$L^2$-error");
-        convergence_table.set_tex_caption("H1", "$H^1$-error");
-        convergence_table.set_tex_caption("Linfty", "$L^\\infty$-error");
+        convergence_table_rate.set_tex_caption("cells", "\\# cells");
+        convergence_table_rate.set_tex_caption("dofs", "\\# dofs");
+        convergence_table_rate.set_tex_caption("L2", "$L^2$-error");
+        convergence_table_rate.set_tex_caption("H1", "$H^1$-error");
+        convergence_table_rate.set_tex_caption("Linfty", "$L^\\infty$-error");
         
         convergence_table.set_tex_format("cells", "r");
         convergence_table.set_tex_format("dofs", "r");
         
         std::cout << std::endl;
-        convergence_table.write_text(std::cout);
+        convergence_table_rate.write_text(std::cout);
         
         std::string error_filename = "error";
         switch (refinement_mode)
@@ -568,32 +607,32 @@ namespace Step7
         error_filename += ".tex";
         std::ofstream error_table_file(error_filename.c_str());
         
-        convergence_table.write_tex(error_table_file);
+        convergence_table_rate.write_tex(error_table_file);
         
         
         
         if (refinement_mode==global_refinement)
         {
-            convergence_table.add_column_to_supercolumn("cycle", "n cells");
-            convergence_table.add_column_to_supercolumn("cells", "n cells");
+            convergence_table_rate.add_column_to_supercolumn("cycle", "n cells");
+            convergence_table_rate.add_column_to_supercolumn("cells", "n cells");
             
             std::vector<std::string> new_order;
             new_order.push_back("n cells");
             new_order.push_back("H1");
             new_order.push_back("L2");
-            convergence_table.set_column_order (new_order);
+            convergence_table_rate.set_column_order (new_order);
             
-            convergence_table
+            convergence_table_rate
             .evaluate_convergence_rates("L2", ConvergenceTable::reduction_rate);
-            convergence_table
+            convergence_table_rate
             .evaluate_convergence_rates("L2", ConvergenceTable::reduction_rate_log2);
-            convergence_table
+            convergence_table_rate
             .evaluate_convergence_rates("H1", ConvergenceTable::reduction_rate);
-            convergence_table
+            convergence_table_rate
             .evaluate_convergence_rates("H1", ConvergenceTable::reduction_rate_log2);
             
             std::cout << std::endl;
-            convergence_table.write_text(std::cout);
+            convergence_table_rate.write_text(std::cout);
             
             std::string conv_filename = "convergence";
             switch (refinement_mode)
@@ -621,11 +660,31 @@ namespace Step7
             conv_filename += ".tex";
             
             std::ofstream table_file(conv_filename.c_str());
-            convergence_table.write_tex(table_file);
+            convergence_table_rate.write_tex(table_file);
         }
         
     }
     
+    template <int dim>
+    void HelmholtzProblem<dim>::output_results ()
+    {
+        
+        DataOut<dim> data_out;
+        
+        data_out.attach_dof_handler(dof_handler);
+        data_out.add_data_vector(solution, "T");
+        
+        data_out.build_patches();
+        
+        const std::string filename = "solution-"
+        + Utilities::int_to_string(timestep_number, 3) +
+        ".vtk";
+        std::ofstream output(filename.c_str());
+        data_out.write_vtk(output);
+        
+        
+    }
+
     
     
     template <int dim>
@@ -635,6 +694,10 @@ namespace Step7
         
         for (unsigned int cycle=0; cycle<data::no_cycles; ++cycle)
         {
+            timestep_number = 0;
+            time            = 0;
+            // make grid and dofs
+            {
             if (cycle == 0)
             {
                 
@@ -670,35 +733,62 @@ namespace Step7
             else
                 refine_grid ();
             
-            
-            setup_system ();
+            setup_dofs ();
+            }
             
             assemble_system ();
-            system_matrix.copy_from(mass_matrix);
-            system_matrix.add(1.0,nontime_matrix);
-            assemble_rhs ();
-            system_rhs = nontime_rhs;
             
-            std::map<types::global_dof_index,double> boundary_values;
-            VectorTools::interpolate_boundary_values (dof_handler,
+            
+            VectorTools::interpolate(dof_handler,
+                                     InitialFunction<dim>(),
+                                     old_solution);
+            
+            solution = old_solution;
+            
+            
+            output_results();
+            time_step = data::timestep;
+            
+            while (time <= data::final_time)
+            {
+            
+                time += time_step;
+                ++timestep_number;
+                
+                assemble_rhs ();
+                mass_matrix.vmult(system_rhs, old_solution);
+                system_rhs.add(time_step, nontime_rhs);
+                
+                system_matrix.copy_from(mass_matrix);
+                system_matrix.add(time_step,nontime_matrix);
+            
+            
+                std::map<types::global_dof_index,double> boundary_values;
+                VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
                                                       Solution<dim>(),
                                                       boundary_values);
-            MatrixTools::apply_boundary_values (boundary_values,
+                MatrixTools::apply_boundary_values (boundary_values,
                                                 system_matrix,
                                                 solution,
                                                 system_rhs);
             
-            hanging_node_constraints.condense (system_matrix);
-            hanging_node_constraints.condense (system_rhs);
+                hanging_node_constraints.condense (system_matrix);
+                hanging_node_constraints.condense (system_rhs);
             
-            solve ();
+                solve ();
             
-            process_solution (cycle);
+                output_results ();
+                if (time == data::final_time)
+                {process_solution (cycle);}
         }
-        
-        table();
-        
+           // table();
+        }
+        convergence_table
+        .evaluate_convergence_rates("L2", ConvergenceTable::reduction_rate);
+
+        std::cout << std::endl;
+        convergence_table.write_text(std::cout);
     }
     
 }
@@ -726,7 +816,7 @@ int main ()
             
             std::cout << std::endl;
         }
-        /*
+        
          {
          std::cout << "Solving with Q2 elements, global refinement" << std::endl
          << "===========================================" << std::endl
@@ -740,7 +830,7 @@ int main ()
          
          std::cout << std::endl;
          }
-                  }*/
+        
     }
     catch (std::exception &exc)
     {
