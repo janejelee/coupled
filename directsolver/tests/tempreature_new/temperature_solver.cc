@@ -39,15 +39,15 @@ namespace Step7
     
     namespace data
     {
-        const int no_cycles = 3;
+        const int no_cycles = 4;
         const int dimension = 2;
         int degree;
         const double top = 1.0;
         const double bottom = 0.0;
         const double right = PI;
         
-        const double timestep = 1e-6;
-        const double final_time = 4*timestep;
+        const double timestep = 1e-7;
+        const double final_time = 10*timestep;
         const double error_time = 13;
         
         
@@ -461,11 +461,14 @@ namespace Step7
     template <int dim>
     void HelmholtzProblem<dim>::process_solution (const unsigned int cycle)
     {
-
+        
+        Solution<dim> exact_solution;
+        exact_solution.set_time(time);
+        
         Vector<float> difference_per_cell (triangulation.n_active_cells());
         VectorTools::integrate_difference (dof_handler,
                                            solution,
-                                           Solution<dim>(),
+                                           exact_solution,
                                            difference_per_cell,
                                            QGauss<dim>(3),
                                            VectorTools::L2_norm);
@@ -473,7 +476,7 @@ namespace Step7
         
         VectorTools::integrate_difference (dof_handler,
                                            solution,
-                                           Solution<dim>(),
+                                           exact_solution,
                                            difference_per_cell,
                                            QGauss<dim>(3),
                                            VectorTools::H1_seminorm);
@@ -483,7 +486,7 @@ namespace Step7
         const QIterated<dim> q_iterated (q_trapez, 5);
         VectorTools::integrate_difference (dof_handler,
                                            solution,
-                                           Solution<dim>(),
+                                           exact_solution,
                                            difference_per_cell,
                                            q_iterated,
                                            VectorTools::Linfty_norm);
@@ -517,7 +520,7 @@ namespace Step7
         convergence_table.set_scientific("Linfty", true);
         
     }
-    
+    /*
     template <int dim>
     void HelmholtzProblem<dim>::table()
     {
@@ -663,7 +666,7 @@ namespace Step7
             convergence_table_rate.write_tex(table_file);
         }
         
-    }
+    }*/
     
     template <int dim>
     void HelmholtzProblem<dim>::output_results ()
@@ -779,8 +782,8 @@ namespace Step7
                 solve ();
             
                 output_results ();
-                if (time == data::final_time)
-                {process_solution (cycle);}
+                if (timestep_number == 10)
+                    process_solution (cycle);
         }
            // table();
         }
@@ -803,12 +806,13 @@ int main ()
         using namespace dealii;
         using namespace Step7;
 
+        for (unsigned int i=1; i<=3; i++)
         {
-            std::cout << "Solving with Q1 elements, global refinement" << std::endl
+            std::cout << "Solving with Q"<< i << " elements, global refinement" << std::endl
             << "===========================================" << std::endl
             << std::endl;
             
-            FE_Q<dim> fe(1);
+            FE_Q<dim> fe(i);
             HelmholtzProblem<dim>
             helmholtz_problem_2d (fe, HelmholtzProblem<dim>::global_refinement);
             
@@ -816,7 +820,7 @@ int main ()
             
             std::cout << std::endl;
         }
-        
+        /*
          {
          std::cout << "Solving with Q2 elements, global refinement" << std::endl
          << "===========================================" << std::endl
@@ -830,7 +834,7 @@ int main ()
          
          std::cout << std::endl;
          }
-        
+        */
     }
     catch (std::exception &exc)
     {
