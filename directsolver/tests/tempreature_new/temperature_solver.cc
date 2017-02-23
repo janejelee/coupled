@@ -1,25 +1,4 @@
 
-/* ---------------------------------------------------------------------
- *
- * Copyright (C) 2000 - 2015 by the deal.II authors
- *
- * This file is part of the deal.II library.
- *
- * The deal.II library is free software; you can use it, redistribute
- * it, and/or modify it under the terms of the GNU Lesser General
- * Public License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- * The full text of the license can be found in the file LICENSE at
- * the top level of the deal.II distribution.
- *
- * ---------------------------------------------------------------------
- 
- *
- * Author: Wolfgang Bangerth and Ralf Hartmann, University of Heidelberg, 2000
- */
-
-
-
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/logstream.h>
@@ -88,27 +67,6 @@ namespace Step7
     };
     
     
-    template <>
-    const Point<1>
-    SolutionBase<1>::source_centers[SolutionBase<1>::n_source_centers]
-    = { Point<1>(-1.0 / 3.0),
-        Point<1>(0.0),
-        Point<1>(+1.0 / 3.0)
-    };
-    
-    template <>
-    const Point<2>
-    SolutionBase<2>::source_centers[SolutionBase<2>::n_source_centers]
-    = { Point<2>(-0.5, +0.5),
-        Point<2>(-0.5, -0.5),
-        Point<2>(+0.5, -0.5)
-    };
-    
-    template <int dim>
-    const double SolutionBase<dim>::width = 1./8.;
-    
-    
-    
     template <int dim>
     class Solution : public Function<dim>,
     protected SolutionBase<dim>
@@ -128,15 +86,8 @@ namespace Step7
     double Solution<dim>::value (const Point<dim>   &p,
                                  const unsigned int) const
     {
-        double return_value = 0;
-        for (unsigned int i=0; i<this->n_source_centers; ++i)
-        {
-            const Tensor<1,dim> x_minus_xi = p - this->source_centers[i];
-            return_value += std::exp(-x_minus_xi.norm_square() /
-                                     (this->width * this->width));
-        }
-        
-        return return_value;
+
+        return -p[1]*p[1];
     }
     
     
@@ -145,16 +96,9 @@ namespace Step7
                                            const unsigned int) const
     {
         Tensor<1,dim> return_value;
-        
-        for (unsigned int i=0; i<this->n_source_centers; ++i)
-        {
-            const Tensor<1,dim> x_minus_xi = p - this->source_centers[i];
-            
-            return_value += (-2 / (this->width * this->width) *
-                             std::exp(-x_minus_xi.norm_square() /
-                                      (this->width * this->width)) *
-                             x_minus_xi);
-        }
+
+        return_value[0] = 0;
+        return_value[1] = -2*p[1];
         
         return return_value;
     }
@@ -177,21 +121,7 @@ namespace Step7
     double RightHandSide<dim>::value (const Point<dim>   &p,
                                       const unsigned int) const
     {
-        double return_value = 0;
-        for (unsigned int i=0; i<this->n_source_centers; ++i)
-        {
-            const Tensor<1,dim> x_minus_xi = p - this->source_centers[i];
-            
-            return_value += ((2*dim - 4*x_minus_xi.norm_square()/
-                              (this->width * this->width)) /
-                             (this->width * this->width) *
-                             std::exp(-x_minus_xi.norm_square() /
-                                      (this->width * this->width)));
-            return_value += std::exp(-x_minus_xi.norm_square() /
-                                     (this->width * this->width));
-        }
-        
-        return return_value;
+        return 2.0-p[1]*p[1];
     }
     
     
@@ -230,9 +160,15 @@ namespace Step7
         
         SparsityPattern                         sparsity_pattern;
         SparseMatrix<double>                    system_matrix;
+        SparseMatrix<double> mass_matrix;
+        SparseMatrix<double> nontime_matrix;
         
         Vector<double>                          solution;
         Vector<double>                          system_rhs;
+        
+        Vector<double>		 old_solution;
+        Vector<double>		 nontime_rhs;
+
         
         const RefinementMode                    refinement_mode;
         
@@ -276,10 +212,16 @@ namespace Step7
         hanging_node_constraints.condense (dsp);
         sparsity_pattern.copy_from (dsp);
         
-        system_matrix.reinit (sparsity_pattern);
         
+        system_matrix.reinit (sparsity_pattern);
+        mass_matrix.reinit (sparsity_pattern);
+        nontime_matrix.reinit (sparsity_pattern);
         solution.reinit (dof_handler.n_dofs());
+        old_solution.reinit(dof_handler.n_dofs());
         system_rhs.reinit (dof_handler.n_dofs());
+        nontime_rhs.reinit (dof_handler.n_dofs());
+
+        
     }
     
     
@@ -287,6 +229,14 @@ namespace Step7
     template <int dim>
     void HelmholtzProblem<dim>::assemble_system ()
     {
+        system_matrix = 0;
+        nontime_matrix = 0;
+        
+        
+        MatrixCreator::create_mass_matrix(dof_handler,
+                                          QGauss<dim>(data::degree+3),
+                                          mass_matrix);
+
         QGauss<dim>   quadrature_formula(3);
         
         const unsigned int n_q_points    = quadrature_formula.size();
@@ -317,9 +267,7 @@ namespace Step7
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                         cell_matrix(i,j) += ((fe_values.shape_grad(i,q_point) *
                                               fe_values.shape_grad(j,q_point)
-                                              +
-                                              fe_values.shape_value(i,q_point) *
-                                              fe_values.shape_value(j,q_point)) *
+                                              ) *
                                              fe_values.JxW(q_point));
                 }
             
@@ -327,24 +275,13 @@ namespace Step7
             for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
                 for (unsigned int j=0; j<dofs_per_cell; ++j)
-                    system_matrix.add (local_dof_indices[i],
+                    nontime_matrix.add (local_dof_indices[i],
                                        local_dof_indices[j],
                                        cell_matrix(i,j));
                 
             }
         }
-        
-        hanging_node_constraints.condense (system_matrix);
-        
-        std::map<types::global_dof_index,double> boundary_values;
-        VectorTools::interpolate_boundary_values (dof_handler,
-                                                  0,
-                                                  Solution<dim>(),
-                                                  boundary_values);
-        MatrixTools::apply_boundary_values (boundary_values,
-                                            system_matrix,
-                                            solution,
-                                            system_rhs);
+
     }
     
     
@@ -352,6 +289,9 @@ namespace Step7
     template <int dim>
     void HelmholtzProblem<dim>::assemble_rhs ()
     {
+        system_rhs=0;
+        nontime_rhs=0;
+        
         QGauss<dim>   quadrature_formula(3);
         QGauss<dim-1> face_quadrature_formula(3);
         
@@ -400,7 +340,7 @@ namespace Step7
             for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
                 if (cell->face(face_number)->at_boundary()
                     &&
-                    (cell->face(face_number)->boundary_id() == 1))
+                    (cell->face(face_number)->boundary_id() == 0))
                 {
                     fe_face_values.reinit (cell, face_number);
                     
@@ -420,17 +360,15 @@ namespace Step7
             cell->get_dof_indices (local_dof_indices);
             for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
-                system_rhs(local_dof_indices[i]) += cell_rhs(i);
+                nontime_rhs(local_dof_indices[i]) += cell_rhs(i);
             }
         }
         
-        hanging_node_constraints.condense (system_rhs);
         
-        std::map<types::global_dof_index,double> boundary_values;
-
+        
     }
     
-
+    
     
     template <int dim>
     void HelmholtzProblem<dim>::solve ()
@@ -685,7 +623,7 @@ namespace Step7
             std::ofstream table_file(conv_filename.c_str());
             convergence_table.write_tex(table_file);
         }
-
+        
     }
     
     
@@ -700,46 +638,34 @@ namespace Step7
             if (cycle == 0)
             {
                 
-                GridGenerator::hyper_cube (triangulation, -1, 1);
-                triangulation.refine_global (3);
-                typename Triangulation<dim>::cell_iterator
-                cell = triangulation.begin (),
-                endc = triangulation.end();
-                for (; cell!=endc; ++cell)
-                    for (unsigned int face_number=0;
-                         face_number<GeometryInfo<dim>::faces_per_cell;
-                         ++face_number)
-                        if ((std::fabs(cell->face(face_number)->center()(0) - (-1)) < 1e-12)
-                            ||
-                            (std::fabs(cell->face(face_number)->center()(1) - (-1)) < 1e-12))
-                            cell->face(face_number)->set_boundary_id (1);
-               /* {
-                    std::vector<unsigned int> subdivisions (dim, 1);
-                    subdivisions[0] = 4;
-                    
-                    const Point<dim> bottom_left = (dim == 2 ?
-                                                    Point<dim>(0,data::bottom) :
-                                                    Point<dim>(-2,0,-1));
-                    const Point<dim> top_right   = (dim == 2 ?
-                                                    Point<dim>(data::right,data::top) :
-                                                    Point<dim>(0,1,0));
-                    
-                    GridGenerator::subdivided_hyper_rectangle (triangulation,
-                                                               subdivisions,
-                                                               bottom_left,
-                                                               top_right);
-                }
                 
-                triangulation.refine_global (data::global_refinement_level);
-                typename Triangulation<dim>::cell_iterator
-                cell = triangulation.begin (),
-                endc = triangulation.end();
-                for (; cell!=endc; ++cell)
-                    for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
-                        if (cell->face(f)->center()[dim-1] == data::top)
-                            cell->face(f)->set_all_boundary_ids(1);
-                        else if (cell->face(f)->center()[dim-1] == data::bottom)
-                            cell->face(f)->set_all_boundary_ids(2);*/
+                {
+                 std::vector<unsigned int> subdivisions (dim, 1);
+                 subdivisions[0] = 4;
+                 
+                 const Point<dim> bottom_left = (dim == 2 ?
+                 Point<dim>(0,data::bottom) :
+                 Point<dim>(-2,0,-1));
+                 const Point<dim> top_right   = (dim == 2 ?
+                 Point<dim>(data::right,data::top) :
+                 Point<dim>(0,1,0));
+                 
+                 GridGenerator::subdivided_hyper_rectangle (triangulation,
+                 subdivisions,
+                 bottom_left,
+                 top_right);
+                 }
+                 
+                 triangulation.refine_global (data::global_refinement_level);
+                 typename Triangulation<dim>::cell_iterator
+                 cell = triangulation.begin (),
+                 endc = triangulation.end();
+                 for (; cell!=endc; ++cell)
+                     for (unsigned int face_number=0;
+                          face_number<GeometryInfo<dim>::faces_per_cell;
+                          ++face_number)
+                         if (std::fabs(cell->face(face_number)->center()(1) - (data::top)) < 1e-12)
+                         cell->face(face_number)->set_boundary_id (1);
             }
             else
                 refine_grid ();
@@ -748,17 +674,24 @@ namespace Step7
             setup_system ();
             
             assemble_system ();
+            system_matrix.copy_from(mass_matrix);
+            system_matrix.add(1.0,nontime_matrix);
             assemble_rhs ();
+            system_rhs = nontime_rhs;
             
             std::map<types::global_dof_index,double> boundary_values;
             VectorTools::interpolate_boundary_values (dof_handler,
-                                                      0,
+                                                      1,
                                                       Solution<dim>(),
                                                       boundary_values);
             MatrixTools::apply_boundary_values (boundary_values,
                                                 system_matrix,
                                                 solution,
                                                 system_rhs);
+            
+            hanging_node_constraints.condense (system_matrix);
+            hanging_node_constraints.condense (system_rhs);
+            
             solve ();
             
             process_solution (cycle);
@@ -779,21 +712,7 @@ int main ()
     {
         using namespace dealii;
         using namespace Step7;
-        
-        /*{
-            std::cout << "Solving with Q1 elements, adaptive refinement" << std::endl
-            << "=============================================" << std::endl
-            << std::endl;
-            
-            FE_Q<dim> fe(1);
-            HelmholtzProblem<dim>
-            helmholtz_problem_2d (fe, HelmholtzProblem<dim>::adaptive_refinement);
-            
-            helmholtz_problem_2d.run ();
-            
-            std::cout << std::endl;
-        }*/
-        
+
         {
             std::cout << "Solving with Q1 elements, global refinement" << std::endl
             << "===========================================" << std::endl
@@ -808,32 +727,20 @@ int main ()
             std::cout << std::endl;
         }
         /*
-        {
-            std::cout << "Solving with Q2 elements, global refinement" << std::endl
-            << "===========================================" << std::endl
-            << std::endl;
-            
-            FE_Q<dim> fe(2);
-            HelmholtzProblem<dim>
-            helmholtz_problem_2d (fe, HelmholtzProblem<dim>::global_refinement);
-            
-            helmholtz_problem_2d.run ();
-            
-            std::cout << std::endl;
-        }
-        {
-            std::cout << "Solving with Q2 elements, adaptive refinement" << std::endl
-            << "===========================================" << std::endl
-            << std::endl;
-            
-            FE_Q<dim> fe(2);
-            HelmholtzProblem<dim>
-            helmholtz_problem_2d (fe, HelmholtzProblem<dim>::adaptive_refinement);
-            
-            helmholtz_problem_2d.run ();
-            
-            std::cout << std::endl;
-        }*/
+         {
+         std::cout << "Solving with Q2 elements, global refinement" << std::endl
+         << "===========================================" << std::endl
+         << std::endl;
+         
+         FE_Q<dim> fe(2);
+         HelmholtzProblem<dim>
+         helmholtz_problem_2d (fe, HelmholtzProblem<dim>::global_refinement);
+         
+         helmholtz_problem_2d.run ();
+         
+         std::cout << std::endl;
+         }
+                  }*/
     }
     catch (std::exception &exc)
     {
@@ -861,5 +768,3 @@ int main ()
     
     return 0;
 }
-
-
