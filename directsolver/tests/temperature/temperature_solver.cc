@@ -1,794 +1,853 @@
-/* ---------------------------------------------------------------------
- *
- * Copyright (C) 2013 - 2015 by the deal.II authors
- *
- * This file is part of the deal.II library.
- *
- * The deal.II library is free software; you can use it, redistribute
- * it, and/or modify it under the terms of the GNU Lesser General
- * Public License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- * The full text of the license can be found in the file LICENSE at
- * the top level of the deal.II distribution.
- *
- * ---------------------------------------------------------------------
- *
- * Author: Wolfgang Bangerth, Texas A&M University, 2013
- */
-#include <deal.II/base/utilities.h>
+
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/logstream.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/full_matrix.h>
-#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_matrix.h>
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/constraint_matrix.h>
 #include <deal.II/grid/tria.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_refinement.h>
-#include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/tria_accessor.h>
 #include <deal.II/grid/tria_iterator.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_q.h>
-#include <deal.II/fe/fe_values.h>
-#include <deal.II/numerics/data_out.h>
-#include <deal.II/numerics/vector_tools.h>
-#include <deal.II/numerics/error_estimator.h>
-#include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/matrix_tools.h>
-#include <deal.II/base/tensor_function.h>
+#include <deal.II/numerics/error_estimator.h>
+#include <deal.II/numerics/data_out.h>
 
+#include <deal.II/dofs/dof_renumbering.h>
+#include <deal.II/base/smartpointer.h>
+#include <deal.II/numerics/vector_tools.h>
+#include <deal.II/base/convergence_table.h>
+#include <deal.II/fe/fe_values.h>
 
+#include <typeinfo>
 #include <fstream>
 #include <iostream>
-namespace Step26
+
+namespace Step7
 {
     using namespace dealii;
     using namespace numbers;
     
     namespace data
     {
+        const int no_cycles = 4;
         const int dimension = 2;
-        const int degree = 2 ;
+        int degree;
         const double top = 1.0;
         const double bottom = 0.0;
         const double right = PI;
         
-        const double sill_time = 0.1;
-        const double sill_temp = 1000.0;
-        const double temp_top = 0.0;
-        const double kappa = 10.0;
-        const double heat_flux = -1.0;
-        const double timestep = 0.01;
-        const double T_0 = 1.0;
-        
-        
-        const double final_time = 15*timestep;
+        const double timestep = 1e-7;
+        const double final_time = 10*timestep;
         const double error_time = 13;
-    
+        
+        
+        const int global_refinement_level = 2;
+        
+        
         
     }
     
-    
-    template<int dim>
-    class HeatEquation
+    template <int dim>
+    class SolutionBase
     {
-    public:
-        HeatEquation (const unsigned int degree);
-        void run();
-    private:
-        void setup_system();
-        void solve_time_step();
-        void output_results() const;
-        void error_analysis();
-        void refine_mesh (const unsigned int min_grid_level,
-                          const unsigned int max_grid_level);
-        
-        const unsigned int degree;
-        Triangulation<dim>   triangulation;
-        FE_Q<dim>            fe;
-        DoFHandler<dim>      dof_handler;
-        ConstraintMatrix     constraints;
-        SparsityPattern      sparsity_pattern;
-        SparseMatrix<double> mass_matrix;
-        SparseMatrix<double> laplace_matrix;
-        SparseMatrix<double> advection_matrix;
-        SparseMatrix<double> system_matrix;
-        Vector<double>       solution;
-        Vector<double>       old_solution;
-        Vector<double>       system_rhs;
-        Vector<double>       system_rhs_mass;
-        double               time;
-        double               time_step;
-        unsigned int         timestep_number;
-        const double         theta;
+    protected:
+        static const unsigned int n_source_centers = 3;
+        static const Point<dim>   source_centers[n_source_centers];
+        static const double       width;
     };
     
     
-    template<int dim>
-    class RightHandSide : public Function<dim>
+    template <int dim>
+    class Solution : public Function<dim>,
+    protected SolutionBase<dim>
     {
     public:
-        RightHandSide ()
-        :
-        Function<dim>(),
-        period (0.2)
-        {}
-        virtual double value (const Point<dim> &p,
-                              const unsigned int component = 0) const;
-    private:
-        const double period;
-    };
-
-    
-    
-        template<int dim>
-        double RightHandSide<dim>::value (const Point<dim> &p,
-                                          const unsigned int component) const
-        {
-            const double time = this->get_time();
-            
-            return (data::kappa *((PI/data::right)*(PI/data::right) +
-                                   (PI/data::top)*(PI/data::top)) - PI)*
-            (std::cos(PI*p[0]/data::right)*std::sin(PI*p[1]/data::top)*
-             std::exp(- PI * time)) + 
-            (std::cos(PI *p[0]/data::right) * std::cos(PI *p[1]/data::top)*
-             std::exp(-PI * time) * PI/p[1]);
-            
-            
-            /*Assert (component == 0, ExcInternalError());
-            Assert (dim == 2, ExcNotImplemented());
-            const double time = this->get_time();
-            if ((time >= 0.15) && (time <= 0.2))
-            {
-                if ((p[1] > 0.4*data::top) && (p[1] < 0.6*data::top))
-                    return data::sill_temp;
-                else
-                    return 0;
-            }
-            else
-                return 0;
-             */
-        }
-    
+        Solution () : Function<dim>() {}
         
-    template<int dim>
-    class BoundaryValues : public Function<dim>
-    {
-    public:
-        virtual double value (const Point<dim>  &p,
-                              const unsigned int component = 0) const;
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+        
+        virtual Tensor<1,dim> gradient (const Point<dim>   &p,
+                                        const unsigned int  component = 0) const;
     };
     
     
-    template<int dim>
-    double BoundaryValues<dim>::value (const Point<dim> &/*p*/,
-                                       const unsigned int component) const
+    template <int dim>
+    double Solution<dim>::value (const Point<dim>   &p,
+                                 const unsigned int) const
     {
-        Assert(component == 0, ExcInternalError());
-  
-        
-        return data::T_0;
+        const double time = this->get_time();
+        return std::cos(PI*p[0])*std::sin(PI*p[1])*std::exp(-time) + 1;
     }
     
     
-    template<int dim>
-    class HeatFluxValues : public Function<dim>
+    template <int dim>
+    Tensor<1,dim> Solution<dim>::gradient (const Point<dim>   &p,
+                                           const unsigned int) const
+    {
+        const double time = this->get_time();
+        Tensor<1,dim> return_value;
+        
+        return_value[0] = -PI*std::sin(PI*p[0])*std::sin(PI*p[1])*exp(-time);
+        return_value[1] =  PI*std::cos(PI*p[0])*std::cos(PI*p[1])*exp(-time);
+        
+        return return_value;
+    }
+    
+    
+    
+    template <int dim>
+    class RightHandSide : public Function<dim>,
+    protected SolutionBase<dim>
     {
     public:
-        HeatFluxValues () : Function<dim>() {}
-        virtual double value (const Point<dim>  &p,
-                              const unsigned int component = 0) const;
+        RightHandSide () : Function<dim>() {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
     };
     
     
-    template<int dim>
-    double HeatFluxValues<dim>::value (const Point<dim> &p,
-                                       const unsigned int component) const
+    template <int dim>
+    double RightHandSide<dim>::value (const Point<dim>   &p,
+                                      const unsigned int) const
     {
         
         const double time = this->get_time();
-        
-        return (PI / data::top)*std::exp(-PI*time)*std::cos(PI*p[0]/data::right
-                                                                     ) 
-        * data::kappa;
+        return (2*PI*PI-1)*std::cos(PI*p[0])*std::sin(PI*p[1])*exp(-time);
     }
     
     
-    
     template <int dim>
-      class AdvectionField : public TensorFunction<1,dim>
-      {
-      public:
-        AdvectionField () : TensorFunction<1,dim> () 
-		{}
-        virtual Tensor<1,dim> value (const Point<dim> &p) const;
-        
-        virtual void value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<Tensor<1,dim> >    &values) const;
-        
-
-
-      };
-    
-      template <int dim>
-      Tensor<1,dim>
-      AdvectionField<dim>::value (const Point<dim> &p) const
-      {
-        Point<dim> value;
-        value[0] = 0.0;
-          value[1] = 1.0;
-        
-        return value;
-        
-      }
-      
-      template <int dim>
-      void
-      AdvectionField<dim>::value_list (const std::vector<Point<dim> > &points,
-                                       std::vector<Tensor<1,dim> >    &values) const
-      {
-        Assert (values.size() == points.size(),
-                ExcDimensionMismatch (values.size(), points.size()));
-        
-        for (unsigned int i=0; i<points.size(); ++i)
-          values[i] = AdvectionField<dim>::value (points[i]);
-      }
-
-    
-    
-       template <int dim>
-         class InitialFunction : public Function<dim>
-        {
-         public:
-             InitialFunction () : Function<dim>() {}
-             virtual double value (const Point<dim>   &p,
-                                   const unsigned int  component = 0) const;
-         };
-         
-         template <int dim>
-         double InitialFunction<dim>::value (const Point<dim>  &p,
-                                             const unsigned int /*component*/) const
-         {
-          
-             return (std::cos(PI*p[0]/data::right)*std::sin(PI*p[1]/data::top)
-                     ) + data::T_0;
-         }
-    
-    template <int dim>
-    class ExactSolution : public Function<dim>
+    class InitialFunction : public Function<dim>
     {
     public:
-        ExactSolution () : Function<dim>() {}
+        InitialFunction () : Function<dim>() {}
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
     };
     
     template <int dim>
-    double ExactSolution<dim>::value (const Point<dim>  &p,
+    double InitialFunction<dim>::value (const Point<dim>  &p,
                                         const unsigned int /*component*/) const
     {
-        const double time = this->get_time();
         
-        return  (std::cos(PI * p[0] / data::right)* std::sin(PI*p[1]/data::top) ) *
-                std::exp(-PI*time) + data::T_0;
-
-    }
-    
-    
-    
-    
-	 
-    template<int dim>
-    HeatEquation<dim>::HeatEquation (const unsigned int degree)
-    :
-    degree (degree),
-    fe(degree+1),
-    dof_handler(triangulation),
-    time_step(data::timestep),
-    theta(0.5)
-    {}
-    
-    
-    template<int dim>
-    void HeatEquation<dim>::setup_system()
-    {
-        dof_handler.distribute_dofs(fe);
-        /*
-        std::cout << std::endl
-        << "==========================================="
-        << std::endl
-        << "Number of active cells: " << triangulation.n_active_cells()
-        << std::endl
-        << "Number of degrees of freedom: " << dof_handler.n_dofs()
-        << std::endl
-        << std::endl;*/
-        
-        constraints.clear ();
-        DoFTools::make_hanging_node_constraints (dof_handler,
-                                                 constraints);
-        constraints.close();
-        DynamicSparsityPattern dsp(dof_handler.n_dofs());
-        DoFTools::make_sparsity_pattern(dof_handler,
-                                        dsp,
-                                        constraints,
-                                        /*keep_constrained_dofs = */ true);
-        sparsity_pattern.copy_from(dsp);
-        
-        mass_matrix.reinit(sparsity_pattern);
-        laplace_matrix.reinit(sparsity_pattern);
-        advection_matrix.reinit(sparsity_pattern);
-        system_matrix.reinit(sparsity_pattern);
-        
-        solution.reinit(dof_handler.n_dofs());
-        old_solution.reinit(dof_handler.n_dofs());
-        system_rhs.reinit(dof_handler.n_dofs());
-        system_rhs_mass.reinit(dof_handler.n_dofs());
-        
-        
-        
-        MatrixCreator::create_mass_matrix(dof_handler,
-                                          QGauss<dim>(fe.degree+2),
-                                          mass_matrix);
-        
-                QGauss<dim>  quadrature_formula(degree+2);
-                QGauss<dim-1> face_quadrature_formula(degree+2);
-                
-                
-                FEValues<dim> fe_values (fe, quadrature_formula,
-                                          update_values    |  update_gradients |
-                                         update_quadrature_points  |  update_JxW_values);
-                FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
-                                                  update_values         | update_quadrature_points  |
-                                                  update_normal_vectors | update_JxW_values);
-                
-                
-                
-                 const unsigned int   dofs_per_cell = fe.dofs_per_cell;
-                 const unsigned int   n_q_points    = quadrature_formula.size();
-                 const unsigned int   n_face_q_points = face_quadrature_formula.size();
-        
-                 
-                 const AdvectionField<dim> advection_field;
-                 std::vector<Tensor<1,dim> > advection_directions (n_q_points);
-     
-                 advection_field.value_list (fe_values.get_quadrature_points(),
-                                             advection_directions);
-        
-        
-                const HeatFluxValues<dim> heatflux;
-                std::vector<double> heatflux_values (n_face_q_points);
-        
-        
-                 FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
-                 FullMatrix<double>   cell_advection_matrix (dofs_per_cell, dofs_per_cell);
-                 Vector<double>       cell_rhs (dofs_per_cell);
-                 
-                 std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-                 
-                typename DoFHandler<dim>::active_cell_iterator
-                 cell = dof_handler.begin_active(),
-                 endc = dof_handler.end();
-                 for (; cell!=endc; ++cell)
-                 {
-                     cell_matrix = 0;
-                     cell_advection_matrix = 0;
-                     cell_rhs = 0;
-                     
-                     fe_values.reinit (cell);
-                     
-                     for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
-                     {
-                         
-                             for (unsigned int i=0; i<dofs_per_cell; ++i)
-                         {
-                             for (unsigned int j=0; j<dofs_per_cell; ++j)
-                             {
-                                 cell_matrix(i,j) += ( (data::kappa *
-                                                      fe_values.shape_grad(i,q_index) *
-                                                      fe_values.shape_grad(j,q_index)) *
-                                                      fe_values.JxW(q_index));
-                                 
-                                 
-                                 
-                                 
-                             
-                             	 cell_advection_matrix(i,j) += 
-													  (advection_directions[q_index] * 
-														fe_values.shape_grad(i,q_index) *
-														fe_values.shape_value(j,q_index)
-															  )*fe_values.JxW(q_index);
-                                 
-                             	 
-                     }
-                         }
-                     }
-
-                     
-                     cell->get_dof_indices (local_dof_indices);
-                     for (unsigned int i=0; i<dofs_per_cell; ++i)
-                     {
-                         for (unsigned int j=0; j<dofs_per_cell; ++j)
-                             laplace_matrix.add (local_dof_indices[i],
-                                                 local_dof_indices[j],
-                                                 cell_matrix(i,j));
-                         
-                        for (unsigned int j=0; j<dofs_per_cell; ++j)
-                         {
-                              advection_matrix.add (local_dof_indices[i],
-                                                    local_dof_indices[j],
-                                                    cell_advection_matrix(i,j));
-                         
-                         }
-                         
-                     }
-                 }
-        
-        
-
-    }
-    
-    
-
-    
-    template<int dim>
-    void HeatEquation<dim>::solve_time_step()
-    {
-        SolverControl solver_control(1000, 1e-8 * system_rhs.l2_norm());
-        SolverCG<> cg(solver_control);
-        PreconditionSSOR<> preconditioner;
-        preconditioner.initialize(system_matrix, 1.0);
-        
-        cg.solve(system_matrix, solution, system_rhs,
-                 preconditioner);
-        
-        constraints.distribute(solution);
-        /*
-        std::cout << "     " << solver_control.last_step()
-        << " CG iterations." << std::endl;
-         
-         */
-    }
-    
-    
-    template<int dim>
-    void HeatEquation<dim>::output_results() const
-    {
-        DataOut<dim> data_out;
-        data_out.attach_dof_handler(dof_handler);
-        data_out.add_data_vector(solution, "U");
-        data_out.build_patches();
-        const std::string filename = "solution-"
-        + Utilities::int_to_string(timestep_number, 3) +
-        ".vtk";
-        std::ofstream output(filename.c_str());
-        data_out.write_vtk(output);
+        return std::cos(PI*p[0])*std::sin(PI*p[1]) + 1;
     }
     
     
     
     template <int dim>
-    void HeatEquation<dim>::refine_mesh (const unsigned int min_grid_level,
-                                         const unsigned int max_grid_level)
+    class HelmholtzProblem
     {
-        /*
-        Vector<float> estimated_error_per_cell (triangulation.n_active_cells());
-        KellyErrorEstimator<dim>::estimate (dof_handler,
-                                            QGauss<dim-1>(fe.degree+1),
-                                            typename FunctionMap<dim>::type(),
-                                            solution,
-                                            estimated_error_per_cell);
-        GridRefinement::refine_and_coarsen_fixed_fraction (triangulation,
-                                                           estimated_error_per_cell,
-                                                           0.6, 0.4);
-        if (triangulation.n_levels() > max_grid_level)
-            for (typename Triangulation<dim>::active_cell_iterator
-                 cell = triangulation.begin_active(max_grid_level);
-                 cell != triangulation.end(); ++cell)
-                cell->clear_refine_flag ();
-        for (typename Triangulation<dim>::active_cell_iterator
-             cell = triangulation.begin_active(min_grid_level);
-             cell != triangulation.end_active(min_grid_level); ++cell)
-            cell->clear_coarsen_flag ();
+    public:
+        enum RefinementMode
+        {
+            global_refinement, adaptive_refinement
+        };
         
-        SolutionTransfer<dim> solution_trans(dof_handler);
-        Vector<double> previous_solution;
-        previous_solution = solution;
+        HelmholtzProblem (const FiniteElement<dim> &fe,
+                          const RefinementMode      refinement_mode);
         
-        triangulation.prepare_coarsening_and_refinement();
-        solution_trans.prepare_for_coarsening_and_refinement(previous_solution);
-        triangulation.execute_coarsening_and_refinement ();
+        ~HelmholtzProblem ();
         
-        setup_system ();
+        void run ();
         
-        solution_trans.interpolate(previous_solution, solution);
-        */
-        triangulation.refine_global(1);
+    private:
+        void setup_dofs ();
+        void assemble_system ();
+        void assemble_rhs ();
+        void solve ();
+        void refine_grid ();
+        void process_solution (const unsigned int cycle);
+        void output_results ();
+        void table ();
         
-        constraints.distribute (solution);
+        Triangulation<dim>                      triangulation;
+        DoFHandler<dim>                         dof_handler;
+        
+        SmartPointer<const FiniteElement<dim> > fe;
+        
+        ConstraintMatrix                        hanging_node_constraints;
+        
+        SparsityPattern                         sparsity_pattern;
+        SparseMatrix<double>                    system_matrix;
+        SparseMatrix<double> mass_matrix;
+        SparseMatrix<double> nontime_matrix;
+        
+        Vector<double>                          solution;
+        Vector<double>                          system_rhs;
+        
+        Vector<double>		 old_solution;
+        Vector<double>		 nontime_rhs;
+        
+        
+        double               time;
+        double               time_step;
+        unsigned int         timestep_number;
+        
+        
+        
+        const RefinementMode                    refinement_mode;
+        
+        ConvergenceTable                        convergence_table;
+        ConvergenceTable                            convergence_table_rate;
+    };
+    
+    
+    
+    
+    template <int dim>
+    HelmholtzProblem<dim>::HelmholtzProblem (const FiniteElement<dim> &fe,
+                                             const RefinementMode refinement_mode) :
+    dof_handler (triangulation),
+    fe (&fe),
+    refinement_mode (refinement_mode)
+    {}
+    
+    
+    
+    template <int dim>
+    HelmholtzProblem<dim>::~HelmholtzProblem ()
+    {
+        dof_handler.clear ();
+    }
+    
+    
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::setup_dofs ()
+    {
+        dof_handler.distribute_dofs (*fe);
+        DoFRenumbering::Cuthill_McKee (dof_handler);
+        
+        hanging_node_constraints.clear ();
+        DoFTools::make_hanging_node_constraints (dof_handler,
+                                                 hanging_node_constraints);
+        hanging_node_constraints.close ();
+        
+        DynamicSparsityPattern dsp (dof_handler.n_dofs(), dof_handler.n_dofs());
+        DoFTools::make_sparsity_pattern (dof_handler, dsp);
+        hanging_node_constraints.condense (dsp);
+        sparsity_pattern.copy_from (dsp);
+        
+        
+        system_matrix.reinit (sparsity_pattern);
+        mass_matrix.reinit (sparsity_pattern);
+        nontime_matrix.reinit (sparsity_pattern);
+        solution.reinit (dof_handler.n_dofs());
+        old_solution.reinit(dof_handler.n_dofs());
+        system_rhs.reinit (dof_handler.n_dofs());
+        nontime_rhs.reinit (dof_handler.n_dofs());
+        
         
     }
     
     
-    template<int dim>
-    void HeatEquation<dim>::run()
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::assemble_system ()
     {
-        const unsigned int initial_global_refinement = 2;
-        const unsigned int n_adaptive_pre_refinement_steps = 4;
+        system_matrix = 0;
+        nontime_matrix = 0;
         
+        
+        MatrixCreator::create_mass_matrix(dof_handler,
+                                          QGauss<dim>(data::degree+3),
+                                          mass_matrix);
+        
+        QGauss<dim>   quadrature_formula(3);
+        
+        const unsigned int n_q_points    = quadrature_formula.size();
+        
+        const unsigned int dofs_per_cell = fe->dofs_per_cell;
+        
+        FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
+        Vector<double>       cell_rhs (dofs_per_cell);
+        
+        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+        
+        FEValues<dim>  fe_values (*fe, quadrature_formula,
+                                  update_values   | update_gradients |
+                                  update_quadrature_points | update_JxW_values);
+        
+        typename DoFHandler<dim>::active_cell_iterator
+        cell = dof_handler.begin_active(),
+        endc = dof_handler.end();
+        for (; cell!=endc; ++cell)
         {
-            std::vector<unsigned int> subdivisions (dim, 1);
-            subdivisions[0] = 4;
+            cell_matrix = 0;
             
-            const Point<dim> bottom_left = (dim == 2 ?
-                                            Point<dim>(0,data::bottom) :
-                                            Point<dim>(-2,0,-1));
-            const Point<dim> top_right   = (dim == 2 ?
-                                            Point<dim>(data::right,data::top) :
-                                            Point<dim>(0,1,0));
+            fe_values.reinit (cell);
             
-            GridGenerator::subdivided_hyper_rectangle (triangulation,
-                                                       subdivisions,
-                                                       bottom_left,
-                                                       top_right);
-        }
-        
-        for (typename Triangulation<dim>::active_cell_iterator
-             cell = triangulation.begin_active();
-             cell != triangulation.end(); ++cell)
-            for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
-                if (cell->face(f)->center()[dim-1] == data::top)
-                    cell->face(f)->set_all_boundary_ids(1);
-                else if (cell->face(f)->center()[dim-1] == data::bottom)
-                    cell->face(f)->set_all_boundary_ids(2);
-        
-        triangulation.refine_global (initial_global_refinement+2);
-        
-        setup_system();
-        
-        
-        
-        unsigned int pre_refinement_step = 0;
-        Vector<double> tmp;
-        Vector<double> forcing_terms;
-        
-        start_time_iteration:
-		
-        tmp.reinit (solution.size());
-        forcing_terms.reinit (solution.size());
-        
-        VectorTools::interpolate(dof_handler,
-                                 InitialFunction<dim>(),
-                                 old_solution);
-        
-        solution = old_solution;
-        
-        timestep_number = 0;
-        time            = 0;      
-        
-        output_results();
-        while (time <= data::final_time)
-        {
-            time += time_step;
-            ++timestep_number;
-            
-            // std::cout << "Time step " << timestep_number << " at t=" << time
-            // << std::endl;
-            
-            // ///////////
-            
-            mass_matrix.vmult(system_rhs, old_solution);
-        
-            laplace_matrix.vmult(tmp, old_solution);
-            system_rhs.add(-(1 - theta) * time_step, tmp);
-            
-            advection_matrix.vmult(tmp, old_solution);
-            system_rhs.add(-(1 - theta) * time_step, tmp);
-            
-            
-            system_rhs_mass.reinit(dof_handler.n_dofs());
-            
-            
-            QGauss<dim-1> face_quadrature_formula(2);
-            
-            FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
-                                              update_values         | update_quadrature_points  |
-                                              update_normal_vectors | update_JxW_values);
-            
-            const unsigned int   n_face_q_points = face_quadrature_formula.size();
-            
-            
-            HeatFluxValues<dim> heatflux;
-            heatflux.set_time(time);
-            
-            std::vector<double> heatflux_values (n_face_q_points);
-            
-            
-           const unsigned int   dofs_per_cell = fe.dofs_per_cell;
-            Vector<double>       cell_rhs (dofs_per_cell);
-            
-           std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-            
-            typename DoFHandler<dim>::active_cell_iterator
-            cell = dof_handler.begin_active(),
-            endc = dof_handler.end();
-            for (; cell!=endc; ++cell)
-            {
-                cell_rhs = 0;
-                
-                
-                
-                // Heat flux for right hand side
-                for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-                    if (cell->face(face_number)->at_boundary()
-                        &&
-                        (cell->face(face_number)->boundary_id() == 2))
-                    {
-                        fe_face_values.reinit (cell, face_number);
-                        
-                        heatflux.value_list (fe_face_values.get_quadrature_points(),
-                                             heatflux_values);
-                        
-                        for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                        {
-                            // see step-7
-                            for (unsigned int i=0; i<dofs_per_cell; ++i)
-                                cell_rhs(i) += -( heatflux_values[q_point]*
-                                                 fe_face_values.shape_value(i,q_point) *
-                                                 fe_face_values.JxW(q_point));
-                            // std::cout << heatflux_values[q_point] << std::endl;
-                        }
-                    }
-                
-                cell->get_dof_indices (local_dof_indices);
+            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
-                    
-                    system_rhs_mass(local_dof_indices[i]) += cell_rhs(i);
+                    for (unsigned int j=0; j<dofs_per_cell; ++j)
+                        cell_matrix(i,j) += ((fe_values.shape_grad(i,q_point) *
+                                              fe_values.shape_grad(j,q_point)
+                                              ) *
+                                             fe_values.JxW(q_point));
                 }
-            }
             
-            
-          // system_rhs += system_rhs_mass; // Neumann conditions
-            
-            //
-            
-            RightHandSide<dim> rhs_function;
-            rhs_function.set_time(time);
-            
-            VectorTools::create_right_hand_side(dof_handler,
-                                                QGauss<dim>(fe.degree+1),
-                                                rhs_function,
-                                                tmp);
-            
-            forcing_terms = tmp;
-            forcing_terms *= time_step * theta;
-            
-            rhs_function.set_time(time - time_step);
-            VectorTools::create_right_hand_side(dof_handler,
-                                                QGauss<dim>(fe.degree+1),
-                                                rhs_function,
-                                                tmp);
-            
-            forcing_terms.add(time_step * (1 - theta), tmp);
-            system_rhs += forcing_terms;
-            
-            
-            // ////////
-            
-            system_matrix.copy_from(mass_matrix);
-            system_matrix.add(theta * time_step, laplace_matrix);
-            system_matrix.add(theta * time_step, advection_matrix);
-            constraints.condense (system_matrix, system_rhs);
-            
+            cell->get_dof_indices (local_dof_indices);
+            for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
-                BoundaryValues<dim> boundary_values_function;
-                boundary_values_function.set_time(time);
-                std::map<types::global_dof_index, double> boundary_values;
-                VectorTools::interpolate_boundary_values(dof_handler,
-                                                         1,
-                                                         boundary_values_function,
-                                                         boundary_values);
+                for (unsigned int j=0; j<dofs_per_cell; ++j)
+                    nontime_matrix.add (local_dof_indices[i],
+                                        local_dof_indices[j],
+                                        cell_matrix(i,j));
                 
-                VectorTools::interpolate_boundary_values(dof_handler,
-                                                         2,
-                                                         boundary_values_function,
-                                                         boundary_values);
-
-                
-                
-
-                MatrixTools::apply_boundary_values(boundary_values,
-                                                   system_matrix,
-                                                   solution,
-                                                   system_rhs);
-                
-                
-            HeatFluxValues<dim> heatflux_function;
-            heatflux_function.set_time(time);
-                
-                
-            
             }
+        }
+        
+    }
+    
+    
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::assemble_rhs ()
+    {
+        system_rhs=0;
+        nontime_rhs=0;
+        
+        QGauss<dim>   quadrature_formula(3);
+        QGauss<dim-1> face_quadrature_formula(3);
+        
+        const unsigned int n_q_points    = quadrature_formula.size();
+        const unsigned int n_face_q_points = face_quadrature_formula.size();
+        
+        const unsigned int dofs_per_cell = fe->dofs_per_cell;
+        
+        Vector<double>       cell_rhs (dofs_per_cell);
+        
+        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+        
+        FEValues<dim>  fe_values (*fe, quadrature_formula,
+                                  update_values   | update_gradients |
+                                  update_quadrature_points | update_JxW_values);
+        
+        FEFaceValues<dim> fe_face_values (*fe, face_quadrature_formula,
+                                          update_values         | update_quadrature_points  |
+                                          update_normal_vectors | update_JxW_values);
+        
+        RightHandSide<dim> right_hand_side;
+        std::vector<double>  rhs_values (n_q_points);
+        
+        right_hand_side.set_time(time);
+        
+        Solution<dim> exact_solution;
+        exact_solution.set_time(time);
+        
+        typename DoFHandler<dim>::active_cell_iterator
+        cell = dof_handler.begin_active(),
+        endc = dof_handler.end();
+        for (; cell!=endc; ++cell)
+        {
+            cell_rhs = 0;
             
-            solve_time_step();
+            fe_values.reinit (cell);
             
-            //if (timestep_number == data::error_time)
+            right_hand_side.value_list (fe_values.get_quadrature_points(),
+                                        rhs_values);
+            
+            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
-            ExactSolution<dim> exact_solution;
-                exact_solution.set_time(time);
-            Vector<double> difference_per_cell (triangulation.n_active_cells());
-                    std::cout << triangulation.n_active_cells() << std::endl;
-            
-            const QTrapez<1>     q_trapez;
-            const QIterated<dim> quadrature (q_trapez, degree+2);
-            
-            VectorTools::integrate_difference (dof_handler,
-                                               solution,
-                                               exact_solution,
-                                               difference_per_cell,
-                                               quadrature,
-                                               VectorTools::L2_norm);
-            
-            const double L2_error = difference_per_cell.l2_norm();
-            
-            std::cout << "Errors: L2 = " << L2_error << std::endl;
+                    cell_rhs(i) += (fe_values.shape_value(i,q_point) *
+                                    rhs_values [q_point] *
+                                    fe_values.JxW(q_point));
                 }
             
-            output_results();
+            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                if (cell->face(face_number)->at_boundary()
+                    &&
+                    (cell->face(face_number)->boundary_id() == 0))
+                {
+                    fe_face_values.reinit (cell, face_number);
+                    
+                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                    {
+                        const double neumann_value
+                        = (exact_solution.gradient (fe_face_values.quadrature_point(q_point)) *
+                           fe_face_values.normal_vector(q_point));
+                        
+                        for (unsigned int i=0; i<dofs_per_cell; ++i)
+                            cell_rhs(i) += (neumann_value *
+                                            fe_face_values.shape_value(i,q_point) *
+                                            fe_face_values.JxW(q_point));
+                    }
+                }
             
-       /*
-            
-            if ((timestep_number == 1) &&
-                (pre_refinement_step < n_adaptive_pre_refinement_steps))
+            cell->get_dof_indices (local_dof_indices);
+            for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
-                //refine_mesh (initial_global_refinement,
-                  //           initial_global_refinement + n_adaptive_pre_refinement_steps);
-                ++pre_refinement_step;
-                tmp.reinit (solution.size());
-                forcing_terms.reinit (solution.size());
-                std::cout << std::endl;
-                goto start_time_iteration;
+                nontime_rhs(local_dof_indices[i]) += cell_rhs(i);
             }
-            else if ((timestep_number > 0) && (timestep_number % 5 == 0))
+        }
+        
+        
+        
+    }
+    
+    
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::solve ()
+    {
+        SolverControl           solver_control (1000, 1e-12);
+        SolverCG<>              cg (solver_control);
+        
+        PreconditionSSOR<> preconditioner;
+        preconditioner.initialize(system_matrix, 1.2);
+        
+        cg.solve (system_matrix, solution, system_rhs,
+                  preconditioner);
+        
+        hanging_node_constraints.distribute (solution);
+        
+        
+        std::cout << "     " << solver_control.last_step()
+        << " CG iterations." << std::endl;
+    }
+    
+    
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::refine_grid ()
+    {
+        switch (refinement_mode)
+        {
+            case global_refinement:
             {
-                //refine_mesh (initial_global_refinement,
-                  //           initial_global_refinement + n_adaptive_pre_refinement_steps);
-                tmp.reinit (solution.size());
-                forcing_terms.reinit (solution.size());
+                triangulation.refine_global (1);
+                break;
             }
-            
-            */
-            old_solution = solution;
+                
+            case adaptive_refinement:
+            {
+                Vector<float> estimated_error_per_cell (triangulation.n_active_cells());
+                
+                KellyErrorEstimator<dim>::estimate (dof_handler,
+                                                    QGauss<dim-1>(3),
+                                                    typename FunctionMap<dim>::type(),
+                                                    solution,
+                                                    estimated_error_per_cell);
+                
+                GridRefinement::refine_and_coarsen_fixed_number (triangulation,
+                                                                 estimated_error_per_cell,
+                                                                 0.3, 0.03);
+                
+                triangulation.execute_coarsening_and_refinement ();
+                
+                break;
+            }
+                
+            default:
+            {
+                Assert (false, ExcNotImplemented());
+            }
         }
     }
-
+    
+    
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::process_solution (const unsigned int cycle)
+    {
+        
+        Solution<dim> exact_solution;
+        exact_solution.set_time(time);
+        
+        Vector<float> difference_per_cell (triangulation.n_active_cells());
+        VectorTools::integrate_difference (dof_handler,
+                                           solution,
+                                           exact_solution,
+                                           difference_per_cell,
+                                           QGauss<dim>(3),
+                                           VectorTools::L2_norm);
+        const double L2_error = difference_per_cell.l2_norm();
+        
+        VectorTools::integrate_difference (dof_handler,
+                                           solution,
+                                           exact_solution,
+                                           difference_per_cell,
+                                           QGauss<dim>(3),
+                                           VectorTools::H1_seminorm);
+        const double H1_error = difference_per_cell.l2_norm();
+        
+        const QTrapez<1>     q_trapez;
+        const QIterated<dim> q_iterated (q_trapez, 5);
+        VectorTools::integrate_difference (dof_handler,
+                                           solution,
+                                           exact_solution,
+                                           difference_per_cell,
+                                           q_iterated,
+                                           VectorTools::Linfty_norm);
+        const double Linfty_error = difference_per_cell.linfty_norm();
+        
+        const unsigned int n_active_cells=triangulation.n_active_cells();
+        const unsigned int n_dofs=dof_handler.n_dofs();
+        
+        std::cout << "Cycle " << cycle << ':'
+        << std::endl
+        << "   Number of active cells:       "
+        << n_active_cells
+        << std::endl
+        << "   Number of degrees of freedom: "
+        << n_dofs
+        << std::endl;
+        
+        convergence_table.add_value("cycle", cycle);
+        convergence_table.add_value("cells", n_active_cells);
+        convergence_table.add_value("dofs", n_dofs);
+        convergence_table.add_value("L2", L2_error);
+        convergence_table.add_value("H1", H1_error);
+        convergence_table.add_value("Linfty", Linfty_error);
+        
+        convergence_table.set_precision("L2", 3);
+        convergence_table.set_precision("H1", 3);
+        convergence_table.set_precision("Linfty", 3);
+        
+        convergence_table.set_scientific("L2", true);
+        convergence_table.set_scientific("H1", true);
+        convergence_table.set_scientific("Linfty", true);
+        
+    }
+    /*
+     template <int dim>
+     void HelmholtzProblem<dim>::table()
+     {
+     
+     std::string vtk_filename;
+     switch (refinement_mode)
+     {
+     case global_refinement:
+     vtk_filename = "solution-global";
+     break;
+     case adaptive_refinement:
+     vtk_filename = "solution-adaptive";
+     break;
+     default:
+     Assert (false, ExcNotImplemented());
+     }
+     
+     switch (fe->degree)
+     {
+     case 1:
+     vtk_filename += "-q1";
+     break;
+     case 2:
+     vtk_filename += "-q2";
+     break;
+     
+     default:
+     Assert (false, ExcNotImplemented());
+     }
+     
+     vtk_filename += ".vtk";
+     std::ofstream output (vtk_filename.c_str());
+     
+     DataOut<dim> data_out;
+     data_out.attach_dof_handler (dof_handler);
+     data_out.add_data_vector (solution, "solution");
+     
+     data_out.build_patches (fe->degree);
+     data_out.write_vtk (output);
+     
+     
+     convergence_table_rate.set_precision("L2", 3);
+     convergence_table_rate.set_precision("H1", 3);
+     convergence_table_rate.set_precision("Linfty", 3);
+     
+     convergence_table_rate.set_scientific("L2", true);
+     convergence_table_rate.set_scientific("H1", true);
+     convergence_table_rate.set_scientific("Linfty", true);
+     
+     convergence_table_rate.set_tex_caption("cells", "\\# cells");
+     convergence_table_rate.set_tex_caption("dofs", "\\# dofs");
+     convergence_table_rate.set_tex_caption("L2", "$L^2$-error");
+     convergence_table_rate.set_tex_caption("H1", "$H^1$-error");
+     convergence_table_rate.set_tex_caption("Linfty", "$L^\\infty$-error");
+     
+     convergence_table.set_tex_format("cells", "r");
+     convergence_table.set_tex_format("dofs", "r");
+     
+     std::cout << std::endl;
+     convergence_table_rate.write_text(std::cout);
+     
+     std::string error_filename = "error";
+     switch (refinement_mode)
+     {
+     case global_refinement:
+     error_filename += "-global";
+     break;
+     case adaptive_refinement:
+     error_filename += "-adaptive";
+     break;
+     default:
+     Assert (false, ExcNotImplemented());
+     }
+     
+     switch (fe->degree)
+     {
+     case 1:
+     error_filename += "-q1";
+     break;
+     case 2:
+     error_filename += "-q2";
+     break;
+     default:
+     Assert (false, ExcNotImplemented());
+     }
+     
+     error_filename += ".tex";
+     std::ofstream error_table_file(error_filename.c_str());
+     
+     convergence_table_rate.write_tex(error_table_file);
+     
+     
+     
+     if (refinement_mode==global_refinement)
+     {
+     convergence_table_rate.add_column_to_supercolumn("cycle", "n cells");
+     convergence_table_rate.add_column_to_supercolumn("cells", "n cells");
+     
+     std::vector<std::string> new_order;
+     new_order.push_back("n cells");
+     new_order.push_back("H1");
+     new_order.push_back("L2");
+     convergence_table_rate.set_column_order (new_order);
+     
+     convergence_table_rate
+     .evaluate_convergence_rates("L2", ConvergenceTable::reduction_rate);
+     convergence_table_rate
+     .evaluate_convergence_rates("L2", ConvergenceTable::reduction_rate_log2);
+     convergence_table_rate
+     .evaluate_convergence_rates("H1", ConvergenceTable::reduction_rate);
+     convergence_table_rate
+     .evaluate_convergence_rates("H1", ConvergenceTable::reduction_rate_log2);
+     
+     std::cout << std::endl;
+     convergence_table_rate.write_text(std::cout);
+     
+     std::string conv_filename = "convergence";
+     switch (refinement_mode)
+     {
+     case global_refinement:
+     conv_filename += "-global";
+     break;
+     case adaptive_refinement:
+     conv_filename += "-adaptive";
+     break;
+     default:
+     Assert (false, ExcNotImplemented());
+     }
+     switch (fe->degree)
+     {
+     case 1:
+     conv_filename += "-q1";
+     break;
+     case 2:
+     conv_filename += "-q2";
+     break;
+     default:
+     Assert (false, ExcNotImplemented());
+     }
+     conv_filename += ".tex";
+     
+     std::ofstream table_file(conv_filename.c_str());
+     convergence_table_rate.write_tex(table_file);
+     }
+     
+     }*/
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::output_results ()
+    {
+        
+        DataOut<dim> data_out;
+        
+        data_out.attach_dof_handler(dof_handler);
+        data_out.add_data_vector(solution, "T");
+        
+        data_out.build_patches();
+        
+        const std::string filename = "solution-"
+        + Utilities::int_to_string(timestep_number, 3) +
+        ".vtk";
+        std::ofstream output(filename.c_str());
+        data_out.write_vtk(output);
+        
+        
+    }
+    
+    
+    
+    template <int dim>
+    void HelmholtzProblem<dim>::run ()
+    {
+        const unsigned int n_cycles = (refinement_mode==global_refinement)?5:9;
+        
+        for (unsigned int cycle=0; cycle<data::no_cycles; ++cycle)
+        {
+            timestep_number = 0;
+            time            = 0;
+            // make grid and dofs
+            {
+                if (cycle == 0)
+                {
+                    
+                    
+                    {
+                        std::vector<unsigned int> subdivisions (dim, 1);
+                        subdivisions[0] = 4;
+                        
+                        const Point<dim> bottom_left = (dim == 2 ?
+                                                        Point<dim>(0,data::bottom) :
+                                                        Point<dim>(-2,0,-1));
+                        const Point<dim> top_right   = (dim == 2 ?
+                                                        Point<dim>(data::right,data::top) :
+                                                        Point<dim>(0,1,0));
+                        
+                        GridGenerator::subdivided_hyper_rectangle (triangulation,
+                                                                   subdivisions,
+                                                                   bottom_left,
+                                                                   top_right);
+                    }
+                    
+                    triangulation.refine_global (data::global_refinement_level);
+                    typename Triangulation<dim>::cell_iterator
+                    cell = triangulation.begin (),
+                    endc = triangulation.end();
+                    for (; cell!=endc; ++cell)
+                        for (unsigned int face_number=0;
+                             face_number<GeometryInfo<dim>::faces_per_cell;
+                             ++face_number)
+                            if (std::fabs(cell->face(face_number)->center()(1) - (data::top)) < 1e-12)
+                                cell->face(face_number)->set_boundary_id (1);
+                }
+                else
+                    refine_grid ();
+                
+                setup_dofs ();
+            }
+            
+            assemble_system ();
+            
+            
+            VectorTools::interpolate(dof_handler,
+                                     InitialFunction<dim>(),
+                                     old_solution);
+            
+            solution = old_solution;
+            
+            
+            output_results();
+            time_step = data::timestep;
+            
+            while (time <= data::final_time)
+            {
+                
+                time += time_step;
+                ++timestep_number;
+                
+                assemble_rhs ();
+                mass_matrix.vmult(system_rhs, old_solution);
+                system_rhs.add(time_step, nontime_rhs);
+                
+                system_matrix.copy_from(mass_matrix);
+                system_matrix.add(time_step,nontime_matrix);
+                
+                
+                std::map<types::global_dof_index,double> boundary_values;
+                VectorTools::interpolate_boundary_values (dof_handler,
+                                                          1,
+                                                          Solution<dim>(),
+                                                          boundary_values);
+                MatrixTools::apply_boundary_values (boundary_values,
+                                                    system_matrix,
+                                                    solution,
+                                                    system_rhs);
+                
+                hanging_node_constraints.condense (system_matrix);
+                hanging_node_constraints.condense (system_rhs);
+                
+                solve ();
+                
+                output_results ();
+                if (timestep_number == 10)
+                    process_solution (cycle);
+            }
+            // table();
+        }
+        convergence_table
+        .evaluate_convergence_rates("L2", ConvergenceTable::reduction_rate);
+        
+        std::cout << std::endl;
+        convergence_table.write_text(std::cout);
+    }
+    
 }
 
 
-int main()
+int main ()
 {
+    const unsigned int dim = 2;
+    
     try
     {
         using namespace dealii;
-        using namespace Step26;
-        HeatEquation<data::dimension> heat_equation_solver(data::degree);
-        heat_equation_solver.run();
+        using namespace Step7;
         
+        for (unsigned int i=1; i<=3; i++)
+        {
+            std::cout << "Solving with Q"<< i << " elements, global refinement" << std::endl
+            << "===========================================" << std::endl
+            << std::endl;
+            
+            FE_Q<dim> fe(i);
+            HelmholtzProblem<dim>
+            helmholtz_problem_2d (fe, HelmholtzProblem<dim>::global_refinement);
+            
+            helmholtz_problem_2d.run ();
+            
+            std::cout << std::endl;
         }
+        /*
+         {
+         std::cout << "Solving with Q2 elements, global refinement" << std::endl
+         << "===========================================" << std::endl
+         << std::endl;
+         
+         FE_Q<dim> fe(2);
+         HelmholtzProblem<dim>
+         helmholtz_problem_2d (fe, HelmholtzProblem<dim>::global_refinement);
+         
+         helmholtz_problem_2d.run ();
+         
+         std::cout << std::endl;
+         }
+         */
+    }
     catch (std::exception &exc)
     {
         std::cerr << std::endl << std::endl
         << "----------------------------------------------------"
         << std::endl;
-        std::cerr << "Exception on processing: " << std::endl << exc.what()
-        << std::endl << "Aborting!" << std::endl
+        std::cerr << "Exception on processing: " << std::endl
+        << exc.what() << std::endl
+        << "Aborting!" << std::endl
         << "----------------------------------------------------"
         << std::endl;
         return 1;
@@ -798,11 +857,12 @@ int main()
         std::cerr << std::endl << std::endl
         << "----------------------------------------------------"
         << std::endl;
-        std::cerr << "Unknown exception!" << std::endl << "Aborting!"
-        << std::endl
+        std::cerr << "Unknown exception!" << std::endl
+        << "Aborting!" << std::endl
         << "----------------------------------------------------"
         << std::endl;
         return 1;
     }
+    
     return 0;
 }
