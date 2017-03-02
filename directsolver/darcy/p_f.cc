@@ -52,26 +52,26 @@
 #include <iostream>
 
 #include <deal.II/fe/fe_raviart_thomas.h>
-
+#include <deal.II/numerics/data_postprocessor.h>
 #include <deal.II/base/tensor_function.h>
 
 namespace Step20
 {
   using namespace dealii;
-
+    using namespace numbers;
   namespace data
   {
   	  const int problem_degree = 1;
-  	  const int refinement_level = 5;
+  	  const int refinement_level = 4;
   	  const int dimension = 2;
   			  
       const double rho_f = 1.0;
       const double eta = 1.0;
       
-      const double top = 5.0;
+      const double top = 1.0;
       const double bottom = 0.0;      
       const double left = 0.0;
-      const double right = 20.0;
+      const double right = PI;
      
       const double lambda = 1.0;
       
@@ -93,6 +93,7 @@ namespace Step20
     void solve ();
     void compute_errors () const;
     void output_results () const;
+      void calculate_vf();
 
     const unsigned int   degree;
 
@@ -106,10 +107,21 @@ namespace Step20
 
     BlockVector<double>       solution;
     BlockVector<double>       system_rhs;
+    Vector<double>        vf;
+    Tensor<1,dim>         grad_pf;
+      
+      FESystem<dim> fe2;
+      DoFHandler<dim> dof_handler2;
+      ConstraintMatrix hanging_node_constraints;
+      SparsityPattern sparsity_pattern2;
+      SparseMatrix<double> system_matrix_vf;
+      Vector<double> solution_vf;
+      Vector<double> system_rhs_vf;
+  
   };
 
-  
-
+    
+    
   template <int dim>
   class BoundaryValuesu : public Function<dim>
   {
@@ -151,6 +163,24 @@ namespace Step20
                           const unsigned int  component = 0) const;
   };
 
+    
+    template <int dim>
+    class Neumann : public Function<dim>
+    {
+    public:
+        Neumann () : Function<dim>(1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double Neumann<dim>::value (const Point<dim>  &p,
+                                      const unsigned int /*component*/) const
+    {
+        
+        return 1.0;
+    }
 
 
   template <int dim>
@@ -268,17 +298,16 @@ namespace Step20
       }
   }
 
-
-
-
-
+    
   template <int dim>
   MixedLaplaceProblem<dim>::MixedLaplaceProblem (const unsigned int degree)
     :
     degree (degree),
     fe (FE_RaviartThomas<dim>(degree), 1,
         FE_DGQ<dim>(degree), 1),
-    dof_handler (triangulation)
+    dof_handler (triangulation),
+    fe2 (FE_DGQ<dim>(degree), dim),
+    dof_handler2 (triangulation)
   {}
 
 
@@ -325,11 +354,7 @@ namespace Step20
     DoFTools::count_dofs_per_component (dof_handler, dofs_per_component);
     const unsigned int n_u = dofs_per_component[0],
                        n_p = dofs_per_component[dim];
-    
-/*    std::vector<types::global_dof_index> dofs_per_block (2);
-    DoFTools::count_dofs_per_block (dof_handler, dofs_per_block, block_component);
-    const unsigned int n_u = dofs_per_block[0],
-                       n_p = dofs_per_block[1];*/
+      
 
     std::cout << "Number of active cells: "
               << triangulation.n_active_cells()
@@ -362,6 +387,10 @@ namespace Step20
     system_rhs.block(0).reinit (n_u);
     system_rhs.block(1).reinit (n_p);
     system_rhs.collect_sizes ();
+      
+
+
+    
   }
 
 
@@ -397,6 +426,7 @@ namespace Step20
     std::vector<double> boundary_values (n_face_q_points);
     std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
     std::vector<Tensor<2,dim> > k_values (n_q_points);
+      
 
     const FEValuesExtractors::Vector velocities (0);
     const FEValuesExtractors::Scalar pressure (dim);
@@ -483,13 +513,17 @@ namespace Step20
             std::vector<bool> selected_dofs(n_dofs);
             std::set< types::boundary_id > boundary_ids;
             boundary_ids.insert(0);
+        
             DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
                     selected_dofs, boundary_ids);
 
             for (types::global_dof_index i = 0; i < n_dofs; i++) {
                 if (selected_dofs[i]) boundary_values_flux[i] = 0.0;
             }
+
     }
+      
+      
     MatrixTools::apply_boundary_values(boundary_values_flux,
             system_matrix, solution, system_rhs);
     
@@ -506,11 +540,18 @@ namespace Step20
       SparseDirectUMFPACK  A_direct;
       A_direct.initialize(system_matrix);
       A_direct.vmult (solution, system_rhs);
+      
+      
 
-    /*  constraints.distribute (solution);*/
   }
+    
+    template <int dim>
+    void MixedLaplaceProblem<dim>::calculate_vf ()
+    {
 
 
+        
+    }
 
 
   template <int dim>
@@ -549,7 +590,8 @@ namespace Step20
   template <int dim>
   void MixedLaplaceProblem<dim>::output_results () const
   {
-    std::vector<std::string> solution_names;
+      
+      std::vector<std::string> solution_names;
     switch (dim)
       {
       case 2:
@@ -575,11 +617,7 @@ namespace Step20
     data_out.attach_dof_handler (dof_handler);
     data_out.add_data_vector (solution, solution_names);
 
-/*    data_out.build_patches (degree+1);
 
-    std::ofstream output ("solution.gmv");
-    data_out.write_gmv (output);
-    */
     data_out.build_patches ();
 
     std::ofstream output ("solution.vtk");
@@ -597,6 +635,8 @@ namespace Step20
     solve ();
     compute_errors ();
     output_results ();
+     // calculate_vf();
+      
   }
 }
 
