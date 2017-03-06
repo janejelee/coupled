@@ -61,7 +61,7 @@ namespace Step20
     using namespace numbers;
   namespace data
   {
-  	  const int problem_degree = 1;
+  	  const int problem_degree = 2;
   	  const int refinement_level = 4;
   	  const int dimension = 2;
   			  
@@ -159,7 +159,11 @@ namespace Step20
                                     const unsigned int /*component*/) const
   {
 
-	  return -1./(data::top*data::top)*2.0*data::lambda*data::rho_f*p[1];
+      const double permeability = (0.5*std::sin(3*p[0])+1)
+      * std::exp( -100.0*(p[1]-0.5)*(p[1]-0.5) );
+      
+      
+      return -permeability*(2*p[1] + 200*(p[1]-0.5)*(1-p[1]*p[1]) );
   }
 
 
@@ -170,7 +174,7 @@ namespace Step20
   {
 
 	  
-   return -(2.0/3.0)*data::rho_f*data::top;
+   return -2./3;
   }
 
 
@@ -183,8 +187,13 @@ namespace Step20
     Assert (values.size() == dim+1,
             ExcDimensionMismatch (values.size(), dim+1));
 
+      
+      const double permeability = (0.5*std::sin(3*p[0])+1)
+      * std::exp( -100.0*(p[1]-0.5)*(p[1]-0.5) );
+      
     values(0) = 0.0;
-    values(1) = data::lambda*data::rho_f * (1- 1./(data::top*data::top) * p[1]*p[1]);
+      values(1) = (1-p[1]*p[1])*permeability;
+      //data::lambda*data::rho_f * (1- 1./(data::top*data::top) * p[1]*p[1]);
     values(2) = -data::rho_f*(p[1] - (1.0/3.0)*(1./(data::top*data::top))*p[1]*p[1]*p[1]);
   }
 
@@ -207,19 +216,20 @@ namespace Step20
     KInverse<dim>::value_list (const std::vector<Point<dim> > &points,
                                std::vector<Tensor<2,dim> >    &values) const
     {
-        Assert (points.size() == values.size(),
-                ExcDimensionMismatch (points.size(), values.size()));
+        
+         Assert (points.size() == values.size(),
+          
+         
+          ExcDimensionMismatch (points.size(), values.size()));
         for (unsigned int p=0; p<points.size(); ++p)
-        {/*
+        {
             values[p].clear ();
-            const double distance_to_flowline
-            = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));
-            const double permeability = std::max(std::exp(-(distance_to_flowline*
-                                                            distance_to_flowline)
-                                                          / (0.1 * 0.1)),
-                                                 0.001);*/
+
+            const double permeability = (0.5*std::sin(3*points[p][0])+1)
+            * std::exp( -100.0*(points[p][1]-0.5)*(points[p][1]-0.5) );
+                
             for (unsigned int d=0; d<dim; ++d)
-                values[p][d][d] = 1.0;//./permeability;
+                values[p][d][d] = 1./permeability;
         }
     }
     
@@ -249,17 +259,24 @@ namespace Step20
           values[p].clear ();
           
           
-          const double distance_to_flowline
-          = std::fabs(points[p][1]-(points[p][0]*(0.2/PI) + 0.4));
-          
-          const double permeability = std::max(std::exp(-(distance_to_flowline*
-                                                          distance_to_flowline)
-                                                        / (0.1 * 0.1)),
-                                               0.001);
-          
-          
-        for (unsigned int d=0; d<dim; ++d)
-          values[p][d][d] = permeability;
+          Assert (points.size() == values.size(),
+                  ExcDimensionMismatch (points.size(), values.size()));
+          for (unsigned int p=0; p<points.size(); ++p)
+          {
+              values[p].clear ();/*
+                                  const double distance_to_flowline
+                                  = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));*/
+              
+              const double distance_to_flowline
+              = std::fabs(points[p][1]-0.2*points[p][0]+0.4);
+              const double permeability = std::max(std::exp(-(distance_to_flowline*
+                                                              distance_to_flowline)
+                                                            / (0.1 * 0.1)),
+                                                   0.001);
+              for (unsigned int d=0; d<dim; ++d)
+                  values[p][d][d] = 1./permeability;
+          }
+
       }
   }
 
@@ -431,7 +448,7 @@ namespace Step20
                                        * fe_values.JxW(q);
                 }
 
-              local_rhs(i) += -phi_i_p * /*k_values[q] **/
+              local_rhs(i) += -phi_i_p *
                               rhs_values[q] *
                               fe_values.JxW(q);
               // BE CAREFUL HERE ONCE K is not constant or 1 anymore
