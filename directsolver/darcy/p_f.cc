@@ -121,38 +121,6 @@ namespace Step20
   };
 
     
-    
-  template <int dim>
-  class BoundaryValuesu : public Function<dim>
-  {
-  public:
-    BoundaryValuesu () : Function<dim>(dim+1) {}
-    virtual double value (const Point<dim>   &p,
-                          const unsigned int  component = 0) const;
-    virtual void vector_value (const Point<dim> &p,
-                               Vector<double>   &value) const;
-  };
-  template <int dim>
-  double
-  BoundaryValuesu<dim>::value (const Point<dim>  &p,
-                              const unsigned int component) const
-  {
-  		if (component == 0)
-  			return 0.0;
-  		else if (component == 1)
-  			return 1.0;
-    return 0.0;
-  }
-  template <int dim>
-  void
-  BoundaryValuesu<dim>::vector_value (const Point<dim> &p,
-                                     Vector<double>   &values) const
-  {
-    for (unsigned int c=0; c<this->n_components; ++c)
-      values(c) = BoundaryValuesu<dim>::value (p, c);
-  }
-
-
   template <int dim>
   class RightHandSide : public Function<dim>
   {
@@ -162,25 +130,6 @@ namespace Step20
     virtual double value (const Point<dim>   &p,
                           const unsigned int  component = 0) const;
   };
-
-    
-    template <int dim>
-    class Neumann : public Function<dim>
-    {
-    public:
-        Neumann () : Function<dim>(1) {}
-        
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>
-    double Neumann<dim>::value (const Point<dim>  &p,
-                                      const unsigned int /*component*/) const
-    {
-        
-        return 1.0;
-    }
 
 
   template <int dim>
@@ -253,22 +202,28 @@ namespace Step20
   };
 
 
-  template <int dim>
-  void
-  KInverse<dim>::value_list (const std::vector<Point<dim> > &points,
-                             std::vector<Tensor<2,dim> >    &values) const
-  {
-    Assert (points.size() == values.size(),
-            ExcDimensionMismatch (points.size(), values.size()));
-
-    for (unsigned int p=0; p<points.size(); ++p)
-      {
-        values[p].clear ();
-
-        for (unsigned int d=0; d<dim; ++d)
-          values[p][d][d] = 1.;
-      }
-  }
+    template <int dim>
+    void
+    KInverse<dim>::value_list (const std::vector<Point<dim> > &points,
+                               std::vector<Tensor<2,dim> >    &values) const
+    {
+        Assert (points.size() == values.size(),
+                ExcDimensionMismatch (points.size(), values.size()));
+        for (unsigned int p=0; p<points.size(); ++p)
+        {/*
+            values[p].clear ();
+            const double distance_to_flowline
+            = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));
+            const double permeability = std::max(std::exp(-(distance_to_flowline*
+                                                            distance_to_flowline)
+                                                          / (0.1 * 0.1)),
+                                                 0.001);*/
+            for (unsigned int d=0; d<dim; ++d)
+                values[p][d][d] = 1.0;//./permeability;
+        }
+    }
+    
+    
 
   template <int dim>
   class K : public TensorFunction<2,dim>
@@ -291,10 +246,20 @@ namespace Step20
 
     for (unsigned int p=0; p<points.size(); ++p)
       {
-        values[p].clear ();
-
+          values[p].clear ();
+          
+          
+          const double distance_to_flowline
+          = std::fabs(points[p][1]-(points[p][0]*(0.2/PI) + 0.4));
+          
+          const double permeability = std::max(std::exp(-(distance_to_flowline*
+                                                          distance_to_flowline)
+                                                        / (0.1 * 0.1)),
+                                               0.001);
+          
+          
         for (unsigned int d=0; d<dim; ++d)
-          values[p][d][d] = 1.;
+          values[p][d][d] = permeability;
       }
   }
 
@@ -460,7 +425,7 @@ namespace Step20
                   const double        div_phi_j_u = fe_values[velocities].divergence (j, q);
                   const double        phi_j_p     = fe_values[pressure].value (j, q);
 
-                  local_matrix(i,j) += (phi_i_u * k_inverse_values[q] * phi_j_u
+                    local_matrix(i,j) += ( 1./data::lambda * phi_i_u * k_inverse_values[q] * phi_j_u
                                         - div_phi_i_u * phi_j_p
                                         - phi_i_p * div_phi_j_u)
                                        * fe_values.JxW(q);
@@ -481,6 +446,7 @@ namespace Step20
                   (cell->face(face_no)->boundary_id() == 1))
             {
               fe_face_values.reinit (cell, face_no);
+                // DIRICHLET CONDITION FOR TOP
 
               pressure_boundary_values
               .value_list (fe_face_values.get_quadrature_points(),
@@ -508,7 +474,8 @@ namespace Step20
     std::map<types::global_dof_index, double> boundary_values_flux; 
     {
             types::global_dof_index n_dofs = dof_handler.n_dofs();
-            std::vector<bool> componentVector(dim + 1, true);
+            std::vector<bool> componentVector(dim + 1, true); // condition is on pressue
+            // setting flux value for the sides at 0 ON THE PRESSURE
             componentVector[dim] = false;
             std::vector<bool> selected_dofs(n_dofs);
             std::set< types::boundary_id > boundary_ids;
@@ -522,10 +489,38 @@ namespace Step20
             }
 
     }
+
+      std::map<types::global_dof_index, double> boundary_values_flux2;
+      {
+          types::global_dof_index n_dofs2 = dof_handler.n_dofs();
+          std::vector<bool> componentVector2(dim + 1, false); // condition is on pressue
+          componentVector2[dim+1] = true;
+          // SO THE CONDITION IS ON PRESSURE.
+          // IF WE WANT TO IMPOSE IT ON FLUX, THEN NEED
+          // std::vector<bool> componentVector2(dim + 1, TRUE);
+          // componentVector2[dim+1] = FALSE; THEN APPROPRIATE BOUNDARY VAUES ADJUSTED
+          std::vector<bool> selected_dofs2(n_dofs2);
+          std::set< types::boundary_id > boundary_ids2;
+          boundary_ids2.insert(2);
+          
+          DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector2),
+                                          selected_dofs2, boundary_ids2);
+          
+          for (types::global_dof_index i = 0; i < n_dofs2; i++) {
+              if (selected_dofs2[i]) boundary_values_flux2[i] = 1;//-data::rho_f;
+          }
+          
+      }
+
+      
       
       
     MatrixTools::apply_boundary_values(boundary_values_flux,
             system_matrix, solution, system_rhs);
+      
+      
+      MatrixTools::apply_boundary_values(boundary_values_flux2,
+                                         system_matrix, solution, system_rhs);
     
   }
 
