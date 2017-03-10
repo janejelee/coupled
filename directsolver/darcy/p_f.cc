@@ -61,8 +61,8 @@ namespace Step20
     using namespace numbers;
   namespace data
   {
-  	  const int problem_degree = 2;
-  	  const int refinement_level = 4;
+  	  const int problem_degree = 1;
+  	  const int refinement_level = 5;
   	  const int dimension = 2;
   			  
       const double rho_f = 1.0;
@@ -338,7 +338,13 @@ namespace Step20
                        n_p = dofs_per_component[dim];
       
 
-    std::cout << "Number of active cells: "
+    std::cout << "Problem Degree: "
+    		  << data::problem_degree
+              << std::endl
+			  << "Refinement level: "
+			  << data::refinement_level
+			  << std::endl
+			  << "Number of active cells: "
               << triangulation.n_active_cells()
               << std::endl
               << "Total number of cells: "
@@ -380,8 +386,8 @@ namespace Step20
   template <int dim>
   void MixedLaplaceProblem<dim>::assemble_system ()
   {
-    QGauss<dim>   quadrature_formula(degree+2);
-    QGauss<dim-1> face_quadrature_formula(degree+2);
+    QGauss<dim>   quadrature_formula(degree+8);
+    QGauss<dim-1> face_quadrature_formula(degree+8);
 
     FEValues<dim> fe_values (fe, quadrature_formula,
                              update_values    | update_gradients |
@@ -648,7 +654,7 @@ namespace Step20
     compute_errors ();
     output_results ();
      // calculate_vf();
-      
+    
   }
 }
 
