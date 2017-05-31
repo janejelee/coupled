@@ -1,10 +1,10 @@
- *
+ /*
  * solve two laplaceś equation in one code and be able to use the solutions
  *
  *
  *
  *
- *
+ */
  
 
 #include <deal.II/grid/tria.h>
@@ -16,10 +16,11 @@
 #include <deal.II/dofs/dof_accessor.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_values.h>
 
 #include <deal.II/dofs/dof_tools.h>
 
-#include <deal.II/fe/fe_values.h>
+
 #include <deal.II/base/quadrature_lib.h>
 
 #include <deal.II/base/function.h>
@@ -32,6 +33,8 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/constraint_matrix.h>
+
 
 #include <deal.II/numerics/data_out.h>
 #include <fstream>
@@ -54,24 +57,38 @@ private:
   void setup_system ();
   void assemble_system ();
   void solve ();
+  void third_solution ();
   void output_results () const;
 
   Triangulation<2>     triangulation;
-  FE_Q<2>              fe;
-  DoFHandler<2>        dof_handler;
+  FE_Q<2>              fe1;
+  FE_Q<2>              fe2;
+  DoFHandler<2>        dof_handler1;
+  DoFHandler<2>        dof_handler2;
 
-  SparsityPattern      sparsity_pattern;
-  SparseMatrix<double> system_matrix;
-
-  Vector<double>       solution;
-  Vector<double>       system_rhs;
+  SparsityPattern      sparsity_pattern1;
+  SparseMatrix<double> system_matrix1;
+  SparsityPattern      sparsity_pattern2;
+  SparseMatrix<double> system_matrix2;
+  
+  ConstraintMatrix	   constraints;
+  
+  Vector<double>       solution1;
+  Vector<double>       system_rhs1;
+  
+  Vector<double>       solution2;
+  Vector<double>       system_rhs2;
+  
+  Vector<double>       solution3;
 };
 
 
 Step3::Step3 ()
   :
-  fe (1),
-  dof_handler (triangulation)
+  fe1 (1),
+  fe2 (2), 
+  dof_handler1 (triangulation),
+  dof_handler2 (triangulation)
 {}
 
 
@@ -91,19 +108,37 @@ void Step3::make_grid ()
 
 void Step3::setup_system ()
 {
-  dof_handler.distribute_dofs (fe);
-  std::cout << "Number of degrees of freedom: "
-            << dof_handler.n_dofs()
+  dof_handler1.distribute_dofs (fe1);
+  std::cout << "Number of degrees of freedom for u1: "
+            << dof_handler1.n_dofs()
             << std::endl;
 
-  DynamicSparsityPattern dsp(dof_handler.n_dofs());
-  DoFTools::make_sparsity_pattern (dof_handler, dsp);
-  sparsity_pattern.copy_from(dsp);
+  DynamicSparsityPattern dsp1(dof_handler1.n_dofs());
+  DoFTools::make_sparsity_pattern (dof_handler1, dsp1);
+  sparsity_pattern1.copy_from(dsp1);
 
-  system_matrix.reinit (sparsity_pattern);
+  system_matrix1.reinit (sparsity_pattern1);
 
-  solution.reinit (dof_handler.n_dofs());
-  system_rhs.reinit (dof_handler.n_dofs());
+  solution1.reinit (dof_handler1.n_dofs());
+  system_rhs1.reinit (dof_handler1.n_dofs());
+  
+  //////////////////////////////////////////////////////////////////
+  
+  dof_handler2.distribute_dofs (fe2);
+  std::cout << "Number of degrees of freedom for u2: "
+            << dof_handler2.n_dofs()
+            << std::endl;
+
+  DynamicSparsityPattern dsp2(dof_handler2.n_dofs());
+  DoFTools::make_sparsity_pattern (dof_handler2, dsp2);
+  sparsity_pattern2.copy_from(dsp2);
+
+  system_matrix2.reinit (sparsity_pattern2);
+
+  solution2.reinit (dof_handler2.n_dofs());
+  system_rhs2.reinit (dof_handler2.n_dofs());
+
+  
 }
 
 
@@ -111,61 +146,118 @@ void Step3::setup_system ()
 void Step3::assemble_system ()
 {
   QGauss<2>  quadrature_formula(2);
-  FEValues<2> fe_values (fe, quadrature_formula,
+  FEValues<2> fe_values1 (fe1, quadrature_formula,
+                         update_values | update_gradients | update_JxW_values);
+  FEValues<2> fe_values2 (fe2, quadrature_formula,
                          update_values | update_gradients | update_JxW_values);
 
-  const unsigned int   dofs_per_cell = fe.dofs_per_cell;
+  const unsigned int   dofs_per_cell1 = fe1.dofs_per_cell;
+  const unsigned int   dofs_per_cell2 = fe2.dofs_per_cell;
   const unsigned int   n_q_points    = quadrature_formula.size();
 
-  FullMatrix<double>   cell_matrix (dofs_per_cell, dofs_per_cell);
-  Vector<double>       cell_rhs (dofs_per_cell);
+  FullMatrix<double>   cell_matrix1 (dofs_per_cell1, dofs_per_cell1);
+  Vector<double>       cell_rhs1 (dofs_per_cell1);
+  FullMatrix<double>   cell_matrix2 (dofs_per_cell2, dofs_per_cell2);
+  Vector<double>       cell_rhs2 (dofs_per_cell2);
 
-  std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+  std::vector<types::global_dof_index> local_dof_indices1 (dofs_per_cell1);
+  std::vector<types::global_dof_index> local_dof_indices2 (dofs_per_cell2);
 
-  DoFHandler<2>::active_cell_iterator cell = dof_handler.begin_active();
-  DoFHandler<2>::active_cell_iterator endc = dof_handler.end();
-  for (; cell!=endc; ++cell)
+  /////////////////////////////////////////////////////
+  
+  DoFHandler<2>::active_cell_iterator cell1 = dof_handler1.begin_active();
+  DoFHandler<2>::active_cell_iterator endc1 = dof_handler1.end();
+  for (; cell1!=endc1; ++cell1)
     {
-      fe_values.reinit (cell);
+      fe_values1.reinit (cell1);
 
-      cell_matrix = 0;
-      cell_rhs = 0;
+      cell_matrix1 = 0;
+      cell_rhs1 = 0;
 
       for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
         {
-          for (unsigned int i=0; i<dofs_per_cell; ++i)
-            for (unsigned int j=0; j<dofs_per_cell; ++j)
-              cell_matrix(i,j) += (fe_values.shape_grad (i, q_index) *
-                                   fe_values.shape_grad (j, q_index) *
-                                   fe_values.JxW (q_index));
+          for (unsigned int i=0; i<dofs_per_cell1; ++i)
+            for (unsigned int j=0; j<dofs_per_cell1; ++j)
+              cell_matrix1(i,j) += (fe_values1.shape_grad (i, q_index) *
+                                   fe_values1.shape_grad (j, q_index) *
+                                   fe_values1.JxW (q_index));
 
-          for (unsigned int i=0; i<dofs_per_cell; ++i)
-            cell_rhs(i) += (fe_values.shape_value (i, q_index) *
+          for (unsigned int i=0; i<dofs_per_cell1; ++i)
+            cell_rhs1(i) += (fe_values1.shape_value (i, q_index) *
                             1 *
-                            fe_values.JxW (q_index));
+                            fe_values1.JxW (q_index));
         }
-      cell->get_dof_indices (local_dof_indices);
+      cell1->get_dof_indices (local_dof_indices1);
 
-      for (unsigned int i=0; i<dofs_per_cell; ++i)
-        for (unsigned int j=0; j<dofs_per_cell; ++j)
-          system_matrix.add (local_dof_indices[i],
-                             local_dof_indices[j],
-                             cell_matrix(i,j));
+      for (unsigned int i=0; i<dofs_per_cell1; ++i)
+        for (unsigned int j=0; j<dofs_per_cell1; ++j)
+          system_matrix1.add (local_dof_indices1[i],
+                             local_dof_indices1[j],
+                             cell_matrix1(i,j));
 
-      for (unsigned int i=0; i<dofs_per_cell; ++i)
-        system_rhs(local_dof_indices[i]) += cell_rhs(i);
+      for (unsigned int i=0; i<dofs_per_cell1; ++i)
+        system_rhs1(local_dof_indices1[i]) += cell_rhs1(i);
+    }
+  
+
+  std::map<types::global_dof_index,double> boundary_values1;
+  VectorTools::interpolate_boundary_values (dof_handler1,
+                                            0,
+                                            ZeroFunction<2>(),
+                                            boundary_values1);
+  MatrixTools::apply_boundary_values (boundary_values1,
+                                      system_matrix1,
+                                      solution1,
+                                      system_rhs1);
+  
+  ////////////////////////////////////////////////////
+  
+  
+  DoFHandler<2>::active_cell_iterator cell2 = dof_handler2.begin_active();
+  DoFHandler<2>::active_cell_iterator endc2 = dof_handler2.end();
+  for (; cell2!=endc2; ++cell2)
+    {
+      fe_values2.reinit (cell2);
+
+      cell_matrix2 = 0;
+      cell_rhs2 = 0;
+
+      for (unsigned int q_index=0; q_index<n_q_points; ++q_index)
+        {
+          for (unsigned int i=0; i<dofs_per_cell2; ++i)
+            for (unsigned int j=0; j<dofs_per_cell2; ++j)
+              cell_matrix2(i,j) += (fe_values2.shape_grad (i, q_index) *
+                                   fe_values2.shape_grad (j, q_index) *
+                                   fe_values2.JxW (q_index));
+
+          for (unsigned int i=0; i<dofs_per_cell2; ++i)
+            cell_rhs2(i) += (fe_values2.shape_value (i, q_index) *
+                            2 *
+                            fe_values2.JxW (q_index));
+        }
+      cell2->get_dof_indices (local_dof_indices2);
+
+      for (unsigned int i=0; i<dofs_per_cell2; ++i)
+        for (unsigned int j=0; j<dofs_per_cell2; ++j)
+          system_matrix2.add (local_dof_indices2[i],
+                             local_dof_indices2[j],
+                             cell_matrix2(i,j));
+
+      for (unsigned int i=0; i<dofs_per_cell2; ++i)
+        system_rhs2(local_dof_indices2[i]) += cell_rhs2(i);
     }
 
 
-  std::map<types::global_dof_index,double> boundary_values;
-  VectorTools::interpolate_boundary_values (dof_handler,
+  std::map<types::global_dof_index,double> boundary_values2;
+  VectorTools::interpolate_boundary_values (dof_handler2,
                                             0,
                                             ZeroFunction<2>(),
-                                            boundary_values);
-  MatrixTools::apply_boundary_values (boundary_values,
-                                      system_matrix,
-                                      solution,
-                                      system_rhs);
+                                            boundary_values2);
+  MatrixTools::apply_boundary_values (boundary_values2,
+                                      system_matrix2,
+                                      solution2,
+                                      system_rhs2);
+
 }
 
 
@@ -173,23 +265,57 @@ void Step3::assemble_system ()
 void Step3::solve ()
 {
   SolverControl           solver_control (1000, 1e-12);
-  SolverCG<>              solver (solver_control);
+  SolverCG<>              solver1 (solver_control);
+  SolverCG<>              solver2 (solver_control);
 
-  solver.solve (system_matrix, solution, system_rhs,
+  solver1.solve (system_matrix1, solution1, system_rhs1,
                 PreconditionIdentity());
+  solver2.solve (system_matrix2, solution2, system_rhs2,
+          PreconditionIdentity());
 }
 
+void Step3::third_solution ()
+{
+
+	  solution3.reinit (dof_handler2.n_dofs());
+	
+
+
+
+	
+	/*
+	  solution3.reinit (dof_handler2.n_dofs());
+	  solution3 = solution2;
+	  solution3.add (solution1);
+	  */
+}
 
 
 void Step3::output_results () const
 {
-  DataOut<2> data_out;
-  data_out.attach_dof_handler (dof_handler);
-  data_out.add_data_vector (solution, "solution");
-  data_out.build_patches ();
+  DataOut<2> data_out1;
+  data_out1.attach_dof_handler (dof_handler1);
+  data_out1.add_data_vector (solution1, "solution_u1");
+  data_out1.build_patches ();
 
-  std::ofstream output ("solution.gpl");
-  data_out.write_gnuplot (output);
+  std::ofstream output1 ("solution_u1.gpl");
+  data_out1.write_gnuplot (output1);
+  
+  DataOut<2> data_out2;
+  data_out2.attach_dof_handler (dof_handler2);
+  data_out2.add_data_vector (solution2, "solution_u2");
+  data_out2.build_patches ();
+
+  std::ofstream output2 ("solution_u2.gpl");
+  data_out2.write_gnuplot (output2);
+  
+  DataOut<2> data_out3;
+  data_out3.attach_dof_handler (dof_handler2);
+  data_out3.add_data_vector (solution3, "solution_u3");
+  data_out3.build_patches ();
+
+  std::ofstream output3 ("solution_u3.gpl");
+  data_out3.write_gnuplot (output3); 
 }
 
 
@@ -200,6 +326,7 @@ void Step3::run ()
   setup_system ();
   assemble_system ();
   solve ();
+  third_solution ();
   output_results ();
 }
 
