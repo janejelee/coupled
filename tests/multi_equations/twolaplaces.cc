@@ -19,6 +19,8 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/grid/manifold_lib.h>
+#include <deal.II/grid/grid_refinement.h>
 
 
 #include <deal.II/base/quadrature_lib.h>
@@ -37,6 +39,10 @@
 
 
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/solution_transfer.h>
+
+#include <deal.II/numerics/error_estimator.h>
+
 #include <fstream>
 #include <iostream>
 
@@ -45,7 +51,7 @@ using namespace dealii;
 
 
 class Step3
-{
+{//
 public:
   Step3 ();
 
@@ -63,8 +69,10 @@ private:
   Triangulation<2>     triangulation;
   FE_Q<2>              fe1;
   FE_Q<2>              fe2;
+  FE_Q<2>              fe3;
   DoFHandler<2>        dof_handler1;
   DoFHandler<2>        dof_handler2;
+  DoFHandler<2>        dof_handler3;
 
   SparsityPattern      sparsity_pattern1;
   SparseMatrix<double> system_matrix1;
@@ -74,6 +82,7 @@ private:
   ConstraintMatrix	   constraints;
   
   Vector<double>       solution1;
+  Vector<double>	   solution1_new;
   Vector<double>       system_rhs1;
   
   Vector<double>       solution2;
@@ -86,9 +95,11 @@ private:
 Step3::Step3 ()
   :
   fe1 (1),
-  fe2 (2), 
+  fe2 (2),
+  fe3 (2),  
   dof_handler1 (triangulation),
-  dof_handler2 (triangulation)
+  dof_handler2 (triangulation),
+  dof_handler3 (triangulation)
 {}
 
 
@@ -258,6 +269,7 @@ void Step3::assemble_system ()
                                       solution2,
                                       system_rhs2);
 
+  constraints.close();
 }
 
 
@@ -276,12 +288,53 @@ void Step3::solve ()
 
 void Step3::third_solution ()
 {
+	  QGauss<2>  quadrature_formula(2);
 
-	  solution3.reinit (dof_handler2.n_dofs());
+
+	  solution1_new.reinit (dof_handler2.n_dofs());
+	  /*
+	  std::vector<double> tmp;
+	  QGauss<2>  quadrature_formula(2);
+	  
+	  VectorTools::project (dof_handler3, constraints,
+	                          quadrature_formula, solution1,
+	                          solution1_new);*/
+	  ////////
+	  
+	  dof_handler3.distribute_dofs(fe3);
+	  Vector<float> estimated_error_per_cell (triangulation.n_active_cells());
+	    KellyErrorEstimator<2>::estimate (dof_handler1,
+	                                        QGauss<1>(3),
+	                                        typename FunctionMap<2>::type(),
+	                                        solution1,
+	                                        estimated_error_per_cell);
+	    GridRefinement::refine_and_coarsen_fixed_number (triangulation,
+	                                                     estimated_error_per_cell,
+	                                                     0, 0);
+
+	  
+	  triangulation.prepare_coarsening_and_refinement ();
+	  SolutionTransfer<2> solution_transfer(dof_handler1);	 
 	
+	  
+	  solution_transfer.prepare_for_coarsening_and_refinement(solution1);
+	  triangulation.execute_coarsening_and_refinement();
+	    
 
+	  dof_handler1.distribute_dofs(fe3);
+	  
+	  
 
+	  Vector<double> tmp(dof_handler3.n_dofs());
+	  solution_transfer.interpolate(solution1_new, tmp);
+	  std::cout << "length tmp: "
+        << solution1.size()
+        << std::endl;
+	  
+	  solution3.reinit (dof_handler2.n_dofs());
+	  
 
+	  solution3 = tmp;
 	
 	/*
 	  solution3.reinit (dof_handler2.n_dofs());
