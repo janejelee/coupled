@@ -64,17 +64,17 @@
 namespace Step22
 {
     using namespace dealii;
+    using namespace numbers;
     
     namespace data
     {
-        const double rho_B = 1.0;
         const double eta = 1.0;
-        const double top = 10.0;
+        const double top = 1.0;
         const double bottom = 0.0;
+        const double right = PI;
+        const double left = 0.0;
         const int dimension = 2;
         
-        const double p_top = 20.0;
-        const double p_bottom = 30.0;
     }
     
 
@@ -92,6 +92,7 @@ namespace Step22
         void assemble_system ();
         void solve ();
         void output_results (const unsigned int refinement_cycle) const;
+        void error_analysis ();
         void refine_mesh ();
         
         const unsigned int   degree;
@@ -128,12 +129,14 @@ namespace Step22
     BoundaryValues<dim>::value (const Point<dim>  &p,
                                 const unsigned int component) const
     {
+    	
     		if (component == 0)
-    			return 1.0;
+    			return 0.0;
     		else if (component == 1)
-    			return 1.0;
+    			return 0.5*p[1]*p[1]+2.0;
       return 0.0;
     }
+    
     template <int dim>
     void
     BoundaryValues<dim>::vector_value (const Point<dim> &p,
@@ -144,8 +147,62 @@ namespace Step22
     }
 
 
+    template <int dim>
+    class RightHandSide : public Function<dim>
+    {
+    public:
+      RightHandSide () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+    
+    template <int dim>
+    double
+    RightHandSide<dim>::value (const Point<dim>  &p,
+                               const unsigned int component) const
+    {
+    	
+		if (component == 0)
+			return 0.0;
+		else if (component == 1)
+			return -2*p[1];
+		else if (component == dim)
+			return p[1];
+  return 0.0;
+    }
     
     
+    template <int dim>
+    void
+    RightHandSide<dim>::vector_value (const Point<dim> &p,
+                                      Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = RightHandSide<dim>::value (p, c);
+    }
+    
+    
+    template <int dim>
+    class ExactSolution : public Function<dim>
+    {
+    public:
+      ExactSolution () : Function<dim>(dim+1) {}
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+
+    
+    template <int dim>
+    void
+    ExactSolution<dim>::vector_value (const Point<dim> &p,
+                                      Vector<double>   &values) const
+    {
+      values(0) = 0;
+      values(1) = 0.5*p[1]*p[1]+2.0;
+      values(2) = p[1]*p[1]+2.0*p[1];
+    }
 
     template <int dim>
     StokesProblem<dim>::StokesProblem (const unsigned int degree)
@@ -167,7 +224,7 @@ namespace Step22
         system_matrix.clear ();
         
         dof_handler.distribute_dofs (fe);
-        DoFRenumbering::Cuthill_McKee (dof_handler);
+        DoFRenumbering::component_wise (dof_handler);
         
         std::vector<unsigned int> block_component (dim+1,0);
         block_component[dim] = 1;
@@ -187,8 +244,14 @@ namespace Step22
                                                       BoundaryValues<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
+            
+            VectorTools::interpolate_boundary_values (dof_handler,
+                                                      2,
+                                                      BoundaryValues<dim>(),
+                                                      constraints,
+                                                      fe.component_mask(velocities));
                                                      
-/*                                         
+                                       
 
             std::set<types::boundary_id> no_normal_flux_boundaries;
             no_normal_flux_boundaries.insert (0);
@@ -197,8 +260,7 @@ namespace Step22
                                                              constraints);
             
 
-            
-*/ 
+ 
         }
         
         
@@ -252,7 +314,14 @@ namespace Step22
     template <int dim>
     void StokesProblem<dim>::assemble_system ()
     {
-        system_matrix=0;
+        ///// BCS
+    	
+
+    	
+    	
+    	///////////////
+    	
+    	system_matrix=0;
         system_rhs=0;
         
         QGauss<dim>   quadrature_formula(degree+2);
@@ -282,11 +351,15 @@ namespace Step22
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
         std::vector<double> boundary_values (n_face_q_points);
-        
+        const RightHandSide<dim>          right_hand_side;
+    	std::vector<Vector<double> >      rhs_values (n_q_points, Vector<double>(dim+1));
+    	
+    	
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
         
         std::vector<Tensor<1,dim>>          phi_u       (dofs_per_cell); // why is this a tensor?
+        std::vector<SymmetricTensor<2,dim> > symgrad_phi_u (dofs_per_cell);
         
         std::vector<Tensor<2,dim> >          grad_phi_u (dofs_per_cell);
         std::vector<double>                  div_phi_u   (dofs_per_cell);
@@ -301,6 +374,8 @@ namespace Step22
             local_matrix = 0;
             local_rhs = 0;
             
+            right_hand_side.vector_value_list(fe_values.get_quadrature_points(),
+                                                 rhs_values);
             
             for (unsigned int q=0; q<n_q_points; ++q)
             {
@@ -308,6 +383,7 @@ namespace Step22
                 {
                     phi_u[k]         = fe_values[velocities].value (k, q);
                     grad_phi_u[k]    = fe_values[velocities].gradient (k, q);
+                    symgrad_phi_u[k] = fe_values[velocities].symmetric_gradient(k,q);
                     div_phi_u[k]     = fe_values[velocities].divergence (k, q);
                     phi_p[k]         = fe_values[pressure].value (k, q);
                 }
@@ -316,84 +392,23 @@ namespace Step22
                 {
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
-                        local_matrix(i,j) += (2 * data::eta * 
-                                              scalar_product
-                                              (grad_phi_u[i] , grad_phi_u[j]) // this had i and i in it. changed. 
-                                              - div_phi_u[i] * phi_p[j]
-                                              - phi_p[i] * div_phi_u[j] )
+                        local_matrix(i,j) += (-data::eta * 2*
+                        								(symgrad_phi_u[i]*symgrad_phi_u[j])
+                        					+ div_phi_u[i] * phi_p[j]
+                                              + phi_p[i] * div_phi_u[j] )
 											  * fe_values.JxW(q);
                         
                     }
-                 
-                }
-                
-                
-                    const Point<dim> gravity = ( (dim == 2) ? (Point<dim> (0,1)) :
-                                                 (Point<dim> (0,0,1)) );
 
-
-                    for (unsigned int i=0; i<dofs_per_cell; ++i)
-                        local_rhs(i) += (-data::rho_B *
-                                         gravity * phi_u[i] )*
-                                         fe_values.JxW(q);
+                const unsigned int component_i = fe.system_to_component_index(i).first;
+                local_rhs(i) += fe_values.shape_value(i,q) *
+                                rhs_values[q](component_i) *
+                                fe_values.JxW(q);
+                    
+                }   
 
               }
-            
-            
 
-            for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            for (unsigned int j=i+1; j<dofs_per_cell; ++j)
-                                local_matrix(i,j) = local_matrix(j,i);
-                        
-                        for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-                            if (cell->face(face_number)->at_boundary()
-                                &&
-                                (cell->face(face_number)->boundary_id() == 1))
-                            {
-                                fe_face_values.reinit (cell, face_number);
-                                
-                               
-                                for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                                {
-
-                                    const Tensor<1,dim> normal_dir = fe_face_values.normal_vector(q_point) ;
-                                   
-                                    
-                                    for (unsigned int i=0; i<dofs_per_cell; ++i)
-                                    {
-
-                                        local_rhs(i) += -(-data::p_top *
-                                        				normal_dir *
-                                                        fe_face_values[velocities].value(i,q_point) *
-                                                        fe_face_values.JxW(q_point));
-                                    }
-                                }
-                            }
-                        
-                            else if (cell->face(face_number)->at_boundary()
-                                     &&
-                                     (cell->face(face_number)->boundary_id() == 2))
-                            {
-                                fe_face_values.reinit (cell, face_number);
-                                
-
-                                for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                                {
-
-                                    const Tensor<1,dim> normal_dir = fe_face_values.normal_vector(q_point) ;
-                                   
-                                    
-                                    for (unsigned int i=0; i<dofs_per_cell; ++i)
-                                    {
-
-                                        local_rhs(i) += -(-data::p_bottom *
-                                        				normal_dir *
-                                                        fe_face_values[velocities].value(i,q_point) *
-                                                        fe_face_values.JxW(q_point));
-                                    }
-                                }
-                                
-                            }
 
               cell->get_dof_indices (local_dof_indices);
               constraints.distribute_local_to_global (local_matrix, local_rhs,
@@ -402,6 +417,31 @@ namespace Step22
 
 
         }
+        
+        std::map<types::global_dof_index, double> boundary_values_flux; 
+        {
+                types::global_dof_index n_dofs = dof_handler.n_dofs();
+                std::vector<bool> componentVector(dim + 1, false); // condition is on pressue
+                // setting flux value for the sides at 0 ON THE PRESSURE
+                componentVector[dim] = true;
+                
+                std::vector<bool> selected_dofs(n_dofs);
+                std::set< types::boundary_id > boundary_ids;
+                boundary_ids.insert(2);
+            
+                DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
+                        selected_dofs, boundary_ids);
+
+                for (types::global_dof_index i = 0; i < n_dofs; i++) {
+                    if (selected_dofs[i]) boundary_values_flux[i] = 00.0;
+                }
+
+        }
+          
+          
+        MatrixTools::apply_boundary_values(boundary_values_flux,
+                system_matrix, solution, system_rhs);
+          
         
         
 
@@ -452,30 +492,62 @@ namespace Step22
         
         std::ofstream output (filename.str().c_str());
         data_out.write_vtk (output);
+        
+        
     }
+    
+    template <int dim>
+    void
+    StokesProblem<dim>::error_analysis () 
+	{
+    	  const ComponentSelectFunction<dim> pressure_mask (dim, dim+1);
+    	  const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim), dim+1);
+    	  ExactSolution<dim> exact_solution;
+    	  
+    	  Vector<double> cellwise_errors (triangulation.n_active_cells());
+    	  
+    	  QTrapez<1>     q_trapez;
+    	  QIterated<dim> quadrature (q_trapez, degree+2);
+    	  
+    	  VectorTools::integrate_difference (dof_handler, solution, exact_solution,
+    	                                     cellwise_errors, quadrature,
+    	                                     VectorTools::L2_norm,
+    	                                     &pressure_mask);
+    	  const double p_l2_error = cellwise_errors.l2_norm();
+    	  
+    	  VectorTools::integrate_difference (dof_handler, solution, exact_solution,
+    	                                     cellwise_errors, quadrature,
+    	                                     VectorTools::L2_norm,
+    	                                     &velocity_mask);
+    	  const double u_l2_error = cellwise_errors.l2_norm();
+    	  std::cout << "Errors: ||e_p||_L2 = " << p_l2_error
+    	            << ",   ||e_u||_L2 = " << u_l2_error
+    	            << std::endl;
+    }
+    
     
     
     
     template <int dim>
     void StokesProblem<dim>::run ()
     {
-        {
+    	
             std::vector<unsigned int> subdivisions (dim, 1);
             subdivisions[0] = 4;
             
             const Point<dim> bottom_left = (dim == 2 ?
-                                            Point<dim>(0,data::bottom) :
+                                            Point<dim>(data::left,data::bottom) :
                                             Point<dim>(-2,0,-1));
             const Point<dim> top_right   = (dim == 2 ?
-                                            Point<dim>(40,data::top) :
+                                            Point<dim>(data::right,data::top) :
                                             Point<dim>(0,1,0));
             
             GridGenerator::subdivided_hyper_rectangle (triangulation,
                                                        subdivisions,
                                                        bottom_left,
                                                        top_right);
-        }
-
+        
+        
         for (typename Triangulation<dim>::active_cell_iterator
              cell = triangulation.begin_active();
              cell != triangulation.end(); ++cell)
@@ -484,10 +556,11 @@ namespace Step22
                     cell->face(f)->set_all_boundary_ids(1);
                 else if (cell->face(f)->center()[dim-1] == data::bottom)
                     cell->face(f)->set_all_boundary_ids(2);
+                    
 
         
         
-        triangulation.refine_global (4);
+        triangulation.refine_global (3);
         
 
             setup_dofs ();
@@ -499,7 +572,7 @@ namespace Step22
             solve ();
             
             output_results (1);
-            
+            error_analysis ();
             std::cout << std::endl;
     }
 }
