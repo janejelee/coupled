@@ -43,28 +43,27 @@ namespace Step20
 
   namespace data
   {
-  	  const int problem_degree = 1;
+  	  const int problem_degree = 2;
   	  const int refinement_level = 4;
   	  const int dimension = 2;
   			  
-      const double rho_f = 1.0;
+      const double rho_f = 2.0;
 
       const double top = 1.0;
       const double bottom = 0.0;      
       const double left = 0.0;
       const double right = PI;
      
-      const double lambda = 1.0;
-      const double k = 1.0;
-      const double phi = 1.0;
+      const double lambda = 100.0;
+      const double k = 3.0;
+      const double phi = 0.7;
       
-      const double coeff = 1.0;
 
 
   }
     
     template <int dim>
-    void gravity (const std::vector<Point<dim> > &points,
+    void negunitz (const std::vector<Point<dim> > &points,
                           std::vector<Tensor<1, dim> >   &values)
     {
 
@@ -72,7 +71,7 @@ namespace Step20
         {
 
                 values[point_n][0] = 0.0;
-                values[point_n][1] = -data::coeff*data::rho_f;
+                values[point_n][1] = -1.0;
         }
         
     }
@@ -100,9 +99,8 @@ namespace Step20
         for (unsigned int point_n = 0; point_n < points.size(); ++point_n)
         {
             
-            values[point_n][0] = 0.0;//-(points[point_n][1]*points[point_n][1] + 1.0
-                                    //- 3* points[point_n][0]*points[point_n][0]);
-            values[point_n][1] = -data::rho_f*(1.0-points[point_n][1]*points[point_n][1]); //-2*points[point_n][0]*points[point_n][1];
+            values[point_n][0] = std::sin(points[point_n][0]) + points[point_n][1];
+            values[point_n][1] = std::cos(points[point_n][1]) + points[point_n][0];
         }
         
     }
@@ -160,8 +158,8 @@ namespace Step20
   {
 
 
-      values(0) = p[0]*p[0] + p[1]*p[1]; // + data::coeff*(p[1]*p[1] + 1 - 3*p[0]*p[0]);
-      values(1) = -p[0]*p[1] - data::rho_f*p[1]*p[1];// + data::coeff*2*p[0]*p[1] - data::coeff*data::rho_f;
+      values(0) = p[0]*p[0] + p[1]*p[1] - data::lambda*data::k*(1.0/data::phi) * (std::sin(p[0])+p[1]); 
+      values(1) = -p[0]*p[1] - data::lambda*data::k*(1.0/data::phi) * (std::cos(p[1]) + p[0] + data::rho_f);
   }
 
 
@@ -198,7 +196,7 @@ namespace Step20
                                                      top_right);
       }
 
-
+/*  DONT NEED CONDITONS FOR EXACT EQUATION
       for (typename Triangulation<dim>::active_cell_iterator
            cell = triangulation.begin_active();
            cell != triangulation.end(); ++cell)
@@ -207,6 +205,7 @@ namespace Step20
                   cell->face(f)->set_all_boundary_ids(1);
               else if (cell->face(f)->center()[dim-1] == data::bottom)
                   cell->face(f)->set_all_boundary_ids(2);
+                  */
 
 
     triangulation.refine_global (data::refinement_level);
@@ -275,7 +274,7 @@ namespace Step20
     std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
       
     
-      std::vector<Tensor<1,dim>>     gravity_values (n_q_points);
+      std::vector<Tensor<1,dim>>     negunitz_values (n_q_points);
       std::vector<Tensor<1,dim>>     rock_vel_values (n_q_points);
       std::vector<Tensor<1,dim>>     pressure_flux_values (n_q_points);
 
@@ -290,7 +289,7 @@ namespace Step20
         local_matrix = 0;
         local_rhs = 0;
 
-          gravity (fe_values.get_quadrature_points(), gravity_values);
+          negunitz (fe_values.get_quadrature_points(), negunitz_values);
           rock_vel (fe_values.get_quadrature_points(), rock_vel_values);
           pressure_flux (fe_values.get_quadrature_points(), pressure_flux_values);
           
@@ -326,10 +325,11 @@ namespace Step20
               
               for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
                 local_rhs(i) += (fe_values.shape_value(i,q_point) *
-                                gravity_values[q_point][component_i] +  // gravity already negative
+                				data::lambda*data::k*(1.0/data::phi)* data::rho_f*
+                                negunitz_values[q_point][component_i] +  // negunitz already negative
                                  fe_values.shape_value(i,q_point) * 
                                  rock_vel_values[q_point][component_i]  // rock velocity added
-                                 -data::coeff* fe_values.shape_value(i,q_point) *
+                                 -data::lambda*data::k*(1.0/data::phi)* fe_values.shape_value(i,q_point) *
                                  pressure_flux_values[q_point][component_i] // minus pressure gradient
                                  ) *
                                 fe_values.JxW(q_point);
@@ -342,6 +342,7 @@ namespace Step20
             system_matrix.add (local_dof_indices[i],
                                local_dof_indices[j],
                                local_matrix(i,j));
+        
         for (unsigned int i=0; i<dofs_per_cell; ++i)
           system_rhs(local_dof_indices[i]) += local_rhs(i);
           

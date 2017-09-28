@@ -1,0 +1,10 @@
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/edit_cache.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/rebuild_cache.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/info.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/strip_comments.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/distclean.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/runclean.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/release.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/run.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/veri_darcy.dir
+/scratch/leej/dealnew/program/fullmodel/verification/veri_darcy/CMakeFiles/debug.dir
