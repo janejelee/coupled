@@ -61,8 +61,8 @@ namespace Step20
     using namespace numbers;
   namespace data
   {
-  	  const int problem_degree = 2;
-  	  const int refinement_level = 2;
+  	  const int problem_degree = 1;
+  	  const int refinement_level = 4;
   	  const int dimension = 2;
   			  
       const double rho_f = 2.5;
@@ -269,7 +269,7 @@ namespace Step20
   MixedLaplaceProblem<dim>::MixedLaplaceProblem (const unsigned int degree)
     :
     degree (degree),
-    fe (FE_RaviartThomas<dim>(degree), 1,
+    fe (FE_Q<dim>(degree), dim,
         FE_Q<dim>(degree), 1,
 		FE_Q<dim>(degree), dim),
     dof_handler (triangulation)
@@ -310,13 +310,21 @@ namespace Step20
 
     triangulation.refine_global (data::refinement_level);
 
-    dof_handler.distribute_dofs (fe);   
-    DoFRenumbering::component_wise (dof_handler);
-    std::vector<types::global_dof_index> dofs_per_component (dim+1+dim);
-    DoFTools::count_dofs_per_component (dof_handler, dofs_per_component);
-    const unsigned int n_u = dofs_per_component[0],
-                       n_p = dofs_per_component[dim],
-					   n_vf = dofs_per_component[dim+1];
+    dof_handler.distribute_dofs (fe);
+      DoFRenumbering::Cuthill_McKee (dof_handler);
+      
+      std::vector<unsigned int> block_component(dim+1+dim,0);
+      block_component[dim] = 1;
+      block_component[dim+1] = 2;
+      block_component[dim+dim] = 2; // for 3d need to change this.
+      
+    DoFRenumbering::component_wise (dof_handler, block_component);
+      
+    std::vector<types::global_dof_index> dofs_per_block (3);
+    DoFTools::count_dofs_per_block (dof_handler, dofs_per_block, block_component);
+    const unsigned int n_u = dofs_per_block[0],
+                       n_p = dofs_per_block[1],
+					   n_vf = dofs_per_block[2];
       
 
     std::cout << "Problem Degree: "
@@ -410,6 +418,7 @@ namespace Step20
 
     const FEValuesExtractors::Vector velocities (0);
     const FEValuesExtractors::Scalar pressure (dim);
+    const FEValuesExtractors::Vector fluid_velocity (dim+1);
 
     typename DoFHandler<dim>::active_cell_iterator
     cell = dof_handler.begin_active(),
