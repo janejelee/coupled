@@ -75,6 +75,9 @@ namespace Step20
      
       const double lambda = 0.7;
       const double perm_const = 0.3;
+      
+      const double k = 0.3;
+      const double phi = 0.7;
 
 
   }
@@ -88,25 +91,41 @@ namespace Step20
 
   private:
     void make_grid_and_dofs ();
-    void assemble_system ();
+    void assemble_pf_system ();
+    void assemble_vf_system ();
     void solve ();
-    void calculate_vf();
     void compute_errors () const;
     void output_results () const;
 
-    const unsigned int   degree;
-
     Triangulation<dim>   triangulation;
-    FESystem<dim>        fe;
-    DoFHandler<dim>      dof_handler;
     
-    ConstraintMatrix     constraints;
+    
+    const unsigned int   pf_degree;
+    FESystem<dim>        pf_fe;
+    DoFHandler<dim>      pf_dof_handler;
+    ConstraintMatrix     pf_constraints;
+    
+    BlockSparsityPattern      pf_sparsity_pattern;
+    BlockSparseMatrix<double> pf_system_matrix;
+    BlockVector<double>       pf_solution;
+    BlockVector<double>       pf_system_rhs;
+    
 
-    BlockSparsityPattern      sparsity_pattern;
-    BlockSparseMatrix<double> system_matrix;
 
-    BlockVector<double>       solution;
-    BlockVector<double>       system_rhs;
+    const unsigned int 	vf_degree;
+    FESystem<dim>		vf_fe;
+    DoFHandler<dim>     vf_dof_handler;
+    ConstraintMatrix    vf_constraints;
+    
+    SparsityPattern      vf_sparsity_pattern;
+    SparseMatrix<double> vf_system_matrix;
+    SparseMatrix<double> vf_mass_matrix;
+
+    Vector<double>       vf_solution;
+    Vector<double>       vf_system_rhs;
+    
+    
+   
   
   };
 
@@ -252,7 +271,7 @@ namespace Step20
           {
               values[p].clear ();/*
                                   const double distance_to_flowline
-                                  = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));*/
+                                   = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));*/
               
              
               const double permeability = data::perm_const;
@@ -268,11 +287,15 @@ namespace Step20
   template <int dim>
   MixedLaplaceProblem<dim>::MixedLaplaceProblem (const unsigned int degree)
     :
-    degree (degree),
-    fe (FE_Q<dim>(degree), dim,
-        FE_Q<dim>(degree), 1,
-		FE_Q<dim>(degree), dim),
-    dof_handler (triangulation)
+    pf_degree (degree),
+    pf_fe (FE_Q<dim>(pf_degree+1), dim,
+        FE_Q<dim>(pf_degree), 1),
+    pf_dof_handler (triangulation),
+	
+	vf_degree (degree),
+	vf_fe (FE_Q<dim>(vf_degree), dim),
+	vf_dof_handler (triangulation)
+	
   {}
 
 
@@ -281,7 +304,7 @@ namespace Step20
   template <int dim>
   void MixedLaplaceProblem<dim>::make_grid_and_dofs ()
   {
-      {
+      
           std::vector<unsigned int> subdivisions (dim, 1);
           subdivisions[0] = 4;
 
@@ -296,7 +319,7 @@ namespace Step20
                                                      subdivisions,
                                                      bottom_left,
                                                      top_right);
-      }
+      
 
 
       for (typename Triangulation<dim>::active_cell_iterator
@@ -308,23 +331,36 @@ namespace Step20
               else if (cell->face(f)->center()[dim-1] == data::bottom)
                   cell->face(f)->set_all_boundary_ids(2);
 
+     
     triangulation.refine_global (data::refinement_level);
 
-    dof_handler.distribute_dofs (fe);
-      DoFRenumbering::Cuthill_McKee (dof_handler);
-      
-      std::vector<unsigned int> block_component(dim+1+dim,0);
-      block_component[dim] = 1;
-      block_component[dim+1] = 2;
-      block_component[dim+dim] = 2; // for 3d need to change this.
-      
-    DoFRenumbering::component_wise (dof_handler, block_component);
-      
-    std::vector<types::global_dof_index> dofs_per_block (3);
-    DoFTools::count_dofs_per_block (dof_handler, dofs_per_block, block_component);
-    const unsigned int n_u = dofs_per_block[0],
-                       n_p = dofs_per_block[1],
-					   n_vf = dofs_per_block[2];
+    
+    
+        pf_dof_handler.distribute_dofs (pf_fe);
+        DoFRenumbering::Cuthill_McKee (pf_dof_handler);
+        std::vector<unsigned int> block_component (dim+1,0);
+        block_component[dim] = 1;
+        DoFRenumbering::component_wise (pf_dof_handler, block_component);
+        
+        pf_constraints.clear();
+        pf_constraints.close();
+        vf_dof_handler.distribute_dofs (vf_fe);
+        
+        
+        std::vector<types::global_dof_index> dofs_per_block (2);
+        DoFTools::count_dofs_per_block (pf_dof_handler, dofs_per_block, block_component);
+        const unsigned int n_u = dofs_per_block[0],
+                           n_pf = dofs_per_block[1],
+						   n_vf = vf_dof_handler.n_dofs();
+    
+    // no refining mesh yet so not doing hanging node restraints - see step-31
+
+//    std::vector<types::global_dof_index> pf_dofs_per_component (dim+1);
+//    DoFTools::count_dofs_per_component (pf_dof_handler, pf_dofs_per_component);
+//    const unsigned int n_u = pf_dofs_per_component[0],
+//                       n_pf = pf_dofs_per_component[dim],
+//					   n_vf = vf_dof_handler.n_dofs();
+    
       
 
     std::cout << "Problem Degree: "
@@ -340,63 +376,79 @@ namespace Step20
               << triangulation.n_cells()
               << std::endl
               << "Number of degrees of freedom: "
-              << dof_handler.n_dofs()
-              << " (" << n_u << '+' << n_p << '+' << n_vf << ')'
+              << n_u + n_pf + n_vf
+              << " (" << n_u << '+' << n_pf << '+' << n_vf << ')'
               << std::endl;
     
-    const unsigned int
-	n_couplings = dof_handler.max_couplings_between_dofs();
-
-    sparsity_pattern.reinit (3,3);
-    sparsity_pattern.block(0, 0).reinit (n_u, n_u, n_couplings);
-    sparsity_pattern.block(1, 0).reinit (n_p, n_u, n_couplings);
-    sparsity_pattern.block(2, 0).reinit (n_vf, n_u, n_couplings);
-    sparsity_pattern.block(0, 1).reinit (n_u, n_p, n_couplings);
-    sparsity_pattern.block(1, 1).reinit (n_p, n_p, n_couplings);
-    sparsity_pattern.block(2, 1).reinit (n_vf, n_p, n_couplings);
-    sparsity_pattern.block(0, 2).reinit (n_u, n_vf, n_couplings);
-    sparsity_pattern.block(1, 2).reinit (n_p, n_vf, n_couplings);
-    sparsity_pattern.block(2, 2).reinit (n_vf, n_vf, n_couplings);
+    ///////////////////////////////////////////////////////////////////////////////////
     
-    sparsity_pattern.collect_sizes ();
     
-    DoFTools::make_sparsity_pattern (dof_handler, sparsity_pattern, constraints, false);
-
-    sparsity_pattern.compress();
+    pf_system_matrix.clear();
+    BlockDynamicSparsityPattern dsp(2, 2);
+    dsp.block(0, 0).reinit (n_u, n_u);
+    dsp.block(1, 0).reinit (n_pf, n_u);
+    dsp.block(0, 1).reinit (n_u, n_pf);
+    dsp.block(1, 1).reinit (n_pf, n_pf);
+    dsp.collect_sizes ();
+    DoFTools::make_sparsity_pattern (pf_dof_handler, dsp, pf_constraints, false);
     
-    system_matrix.reinit (sparsity_pattern);
+    pf_sparsity_pattern.copy_from(dsp);
+    pf_system_matrix.reinit (pf_sparsity_pattern);
+    
+   		pf_solution.reinit (2);
+        pf_solution.block(0).reinit (n_u);
+        pf_solution.block(1).reinit (n_pf);
+        pf_solution.collect_sizes ();
 
-    solution.reinit (3);
-    solution.block(0).reinit (n_u);
-    solution.block(1).reinit (n_p);
-    solution.block(2).reinit (n_vf);
-    solution.collect_sizes ();
-
-    system_rhs.reinit (3);
-    system_rhs.block(0).reinit (n_u);
-    system_rhs.block(1).reinit (n_p);
-    system_rhs.block(2).reinit (n_vf);
-    system_rhs.collect_sizes ();
-      
+        pf_system_rhs.reinit (2);
+        pf_system_rhs.block(0).reinit (n_u);
+        pf_system_rhs.block(1).reinit (n_pf);
+        pf_system_rhs.collect_sizes ();
+          
+    
+    {
+    	vf_system_matrix.clear ();
+    	 vf_constraints.clear ();
+    	 DoFTools::make_hanging_node_constraints (vf_dof_handler,
+    	                                               vf_constraints);
+    	 vf_constraints.close();
+     DynamicSparsityPattern dsp(vf_dof_handler.n_dofs());
+     DoFTools::make_sparsity_pattern(vf_dof_handler,
+                                        dsp,
+                                        vf_constraints,
+                                        /*keep_constrained_dofs = */ true);
+        vf_sparsity_pattern.copy_from(dsp);
+        
+        vf_mass_matrix.reinit (vf_sparsity_pattern);
+           vf_system_matrix.reinit (vf_sparsity_pattern);
+           vf_solution.reinit (vf_dof_handler.n_dofs());
+           vf_system_rhs.reinit (vf_dof_handler.n_dofs());
+             
+             
+             MatrixCreator::create_mass_matrix(vf_dof_handler,
+                                               QGauss<dim>(vf_fe.degree+2),
+                                               vf_mass_matrix);
+    }
+    
     
   }
 
 
 
   template <int dim>
-  void MixedLaplaceProblem<dim>::assemble_system ()
+  void MixedLaplaceProblem<dim>::assemble_pf_system ()
   {
-    QGauss<dim>   quadrature_formula(degree+2);
-    QGauss<dim-1> face_quadrature_formula(degree+2);
+    QGauss<dim>   quadrature_formula(pf_degree+2);
+    QGauss<dim-1> face_quadrature_formula(pf_degree+2);
 
-    FEValues<dim> fe_values (fe, quadrature_formula,
+    FEValues<dim> pf_fe_values (pf_fe, quadrature_formula,
                              update_values    | update_gradients |
                              update_quadrature_points  | update_JxW_values);
-    FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
+    FEFaceValues<dim> fe_face_values (pf_fe, face_quadrature_formula,
                                       update_values    | update_normal_vectors |
                                       update_quadrature_points  | update_JxW_values);
 
-    const unsigned int   dofs_per_cell   = fe.dofs_per_cell;
+    const unsigned int   dofs_per_cell   = pf_fe.dofs_per_cell;
     const unsigned int   n_q_points      = quadrature_formula.size();
     const unsigned int   n_face_q_points = face_quadrature_formula.size();
 
@@ -414,50 +466,50 @@ namespace Step20
     std::vector<double> boundary_values (n_face_q_points);
     std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
     std::vector<Tensor<2,dim> > k_values (n_q_points);
-      
+
+    // calculate_vf();
 
     const FEValuesExtractors::Vector velocities (0);
     const FEValuesExtractors::Scalar pressure (dim);
-    const FEValuesExtractors::Vector fluid_velocity (dim+1);
 
     typename DoFHandler<dim>::active_cell_iterator
-    cell = dof_handler.begin_active(),
-    endc = dof_handler.end();
+    cell = pf_dof_handler.begin_active(),
+    endc = pf_dof_handler.end();
     for (; cell!=endc; ++cell)
       {
-        fe_values.reinit (cell);
+        pf_fe_values.reinit (cell);
         local_matrix = 0;
         local_rhs = 0;
 
-        right_hand_side.value_list (fe_values.get_quadrature_points(),
+        right_hand_side.value_list (pf_fe_values.get_quadrature_points(),
                                     rhs_values);
-        k_inverse.value_list (fe_values.get_quadrature_points(),
+        k_inverse.value_list (pf_fe_values.get_quadrature_points(),
                               k_inverse_values);
-        k.value_list (fe_values.get_quadrature_points(),
+        k.value_list (pf_fe_values.get_quadrature_points(),
                                       k_values);
 
         for (unsigned int q=0; q<n_q_points; ++q)
           for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
-              const Tensor<1,dim> phi_i_u     = fe_values[velocities].value (i, q);
-              const double        div_phi_i_u = fe_values[velocities].divergence (i, q);
-              const double        phi_i_p     = fe_values[pressure].value (i, q);
+              const Tensor<1,dim> phi_i_u     = pf_fe_values[velocities].value (i, q);
+              const double        div_phi_i_u = pf_fe_values[velocities].divergence (i, q);
+              const double        phi_i_p     = pf_fe_values[pressure].value (i, q);
 
               for (unsigned int j=0; j<dofs_per_cell; ++j)
                 {
-                  const Tensor<1,dim> phi_j_u     = fe_values[velocities].value (j, q);
-                  const double        div_phi_j_u = fe_values[velocities].divergence (j, q);
-                  const double        phi_j_p     = fe_values[pressure].value (j, q);
+                  const Tensor<1,dim> phi_j_u     = pf_fe_values[velocities].value (j, q);
+                  const double        div_phi_j_u = pf_fe_values[velocities].divergence (j, q);
+                  const double        phi_j_p     = pf_fe_values[pressure].value (j, q);
 
                     local_matrix(i,j) += ( 1./data::lambda * phi_i_u * k_inverse_values[q] * phi_j_u
                                         - div_phi_i_u * phi_j_p
                                         - phi_i_p * div_phi_j_u)
-                                       * fe_values.JxW(q);
+                                       * pf_fe_values.JxW(q);
                 }
 
               local_rhs(i) += phi_i_p *
                               rhs_values[q] *
-                              fe_values.JxW(q);
+                              pf_fe_values.JxW(q);
               // BE CAREFUL HERE ONCE K is not constant or 1 anymore
             }
 
@@ -488,11 +540,11 @@ namespace Step20
         cell->get_dof_indices (local_dof_indices);
         for (unsigned int i=0; i<dofs_per_cell; ++i)
           for (unsigned int j=0; j<dofs_per_cell; ++j)
-            system_matrix.add (local_dof_indices[i],
+            pf_system_matrix.add (local_dof_indices[i],
                                local_dof_indices[j],
                                local_matrix(i,j));
         for (unsigned int i=0; i<dofs_per_cell; ++i)
-          system_rhs(local_dof_indices[i]) += local_rhs(i);
+          pf_system_rhs(local_dof_indices[i]) += local_rhs(i);
       }
     
     
@@ -500,7 +552,7 @@ namespace Step20
     
     std::map<types::global_dof_index, double> boundary_values_flux; 
     {
-            types::global_dof_index n_dofs = dof_handler.n_dofs();
+            types::global_dof_index n_dofs = pf_dof_handler.n_dofs();
             std::vector<bool> componentVector(dim + 1, true); // condition is on pressue
             // setting flux value for the sides at 0 ON THE PRESSURE
             componentVector[dim] = false;
@@ -508,7 +560,7 @@ namespace Step20
             std::set< types::boundary_id > boundary_ids;
             boundary_ids.insert(0);
         
-            DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
+            DoFTools::extract_boundary_dofs(pf_dof_handler, ComponentMask(componentVector),
                     selected_dofs, boundary_ids);
 
             for (types::global_dof_index i = 0; i < n_dofs; i++) {
@@ -517,15 +569,105 @@ namespace Step20
 
     }
 
-      
       // Apply the conditions
       
     MatrixTools::apply_boundary_values(boundary_values_flux,
-            system_matrix, solution, system_rhs);
+            pf_system_matrix, pf_solution, pf_system_rhs);
       
      
   }
+  
 
+  template <int dim>
+  void MixedLaplaceProblem<dim>::assemble_vf_system ()
+  {
+	
+	  QGauss<dim>   quadrature_formula(vf_degree+2);
+
+	     FEValues<dim> vf_fe_values (vf_fe, quadrature_formula,
+	                              update_values    | update_gradients |
+	                              update_quadrature_points  | update_JxW_values);
+	     FEValues<dim> pf_fe_values (pf_fe, quadrature_formula,
+	                              update_values    | update_gradients );	       
+	       
+	     const unsigned int   dofs_per_cell   = vf_fe.dofs_per_cell;
+	     const unsigned int   n_q_points      = quadrature_formula.size();
+
+	     FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
+	     Vector<double>       local_rhs (dofs_per_cell);
+	     std::vector<Tensor<1,dim> > grad_pf_values (n_q_points);
+
+	     std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+	       
+	     
+	       std::vector<Tensor<1,dim>>     negunitz_values (n_q_points);
+	       std::vector<Tensor<1,dim>>     rock_vel_values (n_q_points);
+	       // std::vector<Tensor<1,dim>>     pressure_flux_values (n_q_points);
+	       
+	       const FEValuesExtractors::Vector velocities (0);
+	       const FEValuesExtractors::Scalar pressure (dim);
+
+
+	     typename DoFHandler<dim>::active_cell_iterator
+	     cell = vf_dof_handler.begin_active(),
+	     endc = vf_dof_handler.end();
+	     for (; cell!=endc; ++cell)
+	       {
+	           
+	         vf_fe_values.reinit (cell);
+	         local_matrix = 0;
+	         cell->get_dof_indices (local_dof_indices);
+	      	         for (unsigned int i=0; i<dofs_per_cell; ++i)
+	      	           for (unsigned int j=0; j<dofs_per_cell; ++j)
+	      	             vf_system_matrix.add (local_dof_indices[i],
+	      	                                local_dof_indices[j],
+	      	                                local_matrix(i,j));
+	       }      
+	     
+	     
+	     
+	     /*typename DoFHandler<dim>::active_cell_iterator
+	 	 cell = vf_dof_handler.begin_active(),
+	 	 endc = vf_dof_handler.end();*/
+	     typename DoFHandler<dim>::active_cell_iterator
+		 pf_cell = pf_dof_handler.begin_active();
+	     for (; cell!=endc; ++cell, ++pf_cell)
+	     {
+	    	 vf_fe_values.reinit (cell);
+	    	 pf_fe_values.reinit (pf_cell);
+	    	 
+	         local_rhs = 0;
+
+	           negunitz (vf_fe_values.get_quadrature_points(), negunitz_values);
+	           rock_vel (vf_fe_values.get_quadrature_points(), rock_vel_values);
+	          // pressure_flux (fe_values.get_quadrature_points(), pressure_flux_values);
+	           
+	           pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
+	           
+	
+	           for (unsigned int i=0; i<dofs_per_cell; ++i)
+	           {
+	               const unsigned int
+	               component_i = vf_fe.system_to_component_index(i).first;
+	               
+	               for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+	                 local_rhs(i) += (vf_fe_values.shape_value(i,q_point) *
+	                 				data::lambda*data::k*(1.0/data::phi)* data::rho_f*
+	                                 negunitz_values[q_point][component_i] +  // negunitz already negative
+	                                  vf_fe_values.shape_value(i,q_point) * 
+	                                  rock_vel_values[q_point][component_i]  // rock velocity added
+	                                  -data::lambda*data::k*(1.0/data::phi)* vf_fe_values.shape_value(i,q_point) *
+	                                  grad_pf_values[q_point][component_i] // minus pressure gradient
+	                                  ) *
+	                                 vf_fe_values.JxW(q_point);
+	               
+	           }
+	         
+	         for (unsigned int i=0; i<dofs_per_cell; ++i)
+	           vf_system_rhs(local_dof_indices[i]) += local_rhs(i);
+	     }
+	  
+  }
 
 
 
@@ -534,22 +676,21 @@ namespace Step20
   void MixedLaplaceProblem<dim>::solve ()
   {
 
-      SparseDirectUMFPACK  A_direct;
-      A_direct.initialize(system_matrix);
-      A_direct.vmult (solution, system_rhs);
+      SparseDirectUMFPACK  pf_direct;
+      pf_direct.initialize(pf_system_matrix);
+      pf_direct.vmult (pf_solution, pf_system_rhs);
+      
+      assemble_vf_system ();
+      
+      vf_system_matrix.copy_from(vf_mass_matrix);      
+      SparseDirectUMFPACK  vf_direct;
+      vf_direct.initialize(vf_system_matrix);
+      vf_direct.vmult (vf_solution, vf_system_rhs);
       
       
 
   }
     
-    template <int dim>
-    void MixedLaplaceProblem<dim>::calculate_vf ()
-    {
-
-
-        
-    }
-
 
   template <int dim>
   void MixedLaplaceProblem<dim>::compute_errors () const
@@ -563,15 +704,15 @@ namespace Step20
     Vector<double> cellwise_errors (triangulation.n_active_cells());
 
     QTrapez<1>     q_trapez;
-    QIterated<dim> quadrature (q_trapez, degree+2);
+    QIterated<dim> quadrature (q_trapez, vf_degree+2);
 
-    VectorTools::integrate_difference (dof_handler, solution, exact_solution,
+    VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution,
                                        cellwise_errors, quadrature,
                                        VectorTools::L2_norm,
                                        &pressure_mask);
     const double p_l2_error = cellwise_errors.l2_norm();
 
-    VectorTools::integrate_difference (dof_handler, solution, exact_solution,
+    VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution,
                                        cellwise_errors, quadrature,
                                        VectorTools::L2_norm,
                                        &velocity_mask);
@@ -611,13 +752,13 @@ namespace Step20
 
     DataOut<dim> data_out;
 
-    data_out.attach_dof_handler (dof_handler);
-    data_out.add_data_vector (solution, solution_names);
+    data_out.attach_dof_handler (pf_dof_handler);
+    data_out.add_data_vector (pf_solution, solution_names);
 
 
     data_out.build_patches ();
 
-    std::ofstream output ("solution.vtk");
+    std::ofstream output ("pf_solution.vtk");
     data_out.write_vtk (output);
   }
 
@@ -628,11 +769,10 @@ namespace Step20
   void MixedLaplaceProblem<dim>::run ()
   {
    make_grid_and_dofs();
-   // assemble_system ();
-   // solve ();
+   //assemble_pf_system ();
+   //solve ();
     //compute_errors ();
    // output_results ();
-     // calculate_vf();
     
   }
 }
