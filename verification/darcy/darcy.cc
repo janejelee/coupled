@@ -152,16 +152,6 @@ namespace Step20
   };
 
 
-  template <int dim>
-  class ExactSolution : public Function<dim>
-  {
-  public:
-    ExactSolution () : Function<dim>(dim+1) {}
-
-    virtual void vector_value (const Point<dim> &p,
-                               Vector<double>   &value) const;
-  };
-
 
   template <int dim>
   double RightHandSide<dim>::value (const Point<dim>  &p,
@@ -186,11 +176,50 @@ namespace Step20
    return -2./3*data::rho_f;
   }
 
+  template <int dim>
+  void negunitz (const std::vector<Point<dim> > &points,
+                        std::vector<Tensor<1, dim> >   &values)
+  {
+
+      for (unsigned int point_n = 0; point_n < points.size(); ++point_n)
+      {
+
+              values[point_n][0] = 0.0;
+              values[point_n][1] = -1.0;
+      }
+      
+  }
+
+  	  ///////////////////////////////////////////////
+  template <int dim>
+  void rock_vel (const std::vector<Point<dim> > &points,
+                std::vector<Tensor<1, dim> >   &values)
+  {
+      
+      for (unsigned int point_n = 0; point_n < points.size(); ++point_n)
+      {
+          
+          values[point_n][0] = points[point_n][0]*points[point_n][0] +
+                                      points[point_n][1]*points[point_n][1];
+          values[point_n][1] = -points[point_n][1]*points[point_n][0];
+      }
+      
+  }
 
 
   template <int dim>
+  class ExactSolution_pf : public Function<dim>
+  {
+  public:
+    ExactSolution_pf () : Function<dim>(dim+1) {}
+
+    virtual void vector_value (const Point<dim> &p,
+                               Vector<double>   &value) const;
+  };
+
+  template <int dim>
   void
-  ExactSolution<dim>::vector_value (const Point<dim> &p,
+  ExactSolution_pf<dim>::vector_value (const Point<dim> &p,
                                     Vector<double>   &values) const
   {
     Assert (values.size() == dim+1,
@@ -355,6 +384,7 @@ namespace Step20
     
     // no refining mesh yet so not doing hanging node restraints - see step-31
 
+//    USE THIS NUMBERING OF DOFS FOR RT SPACES
 //    std::vector<types::global_dof_index> pf_dofs_per_component (dim+1);
 //    DoFTools::count_dofs_per_component (pf_dof_handler, pf_dofs_per_component);
 //    const unsigned int n_u = pf_dofs_per_component[0],
@@ -466,8 +496,6 @@ namespace Step20
     std::vector<double> boundary_values (n_face_q_points);
     std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
     std::vector<Tensor<2,dim> > k_values (n_q_points);
-
-    // calculate_vf();
 
     const FEValuesExtractors::Vector velocities (0);
     const FEValuesExtractors::Scalar pressure (dim);
@@ -675,13 +703,16 @@ namespace Step20
   template <int dim>
   void MixedLaplaceProblem<dim>::solve ()
   {
-
+	  std::cout << "   Solving for p_f..." << std::endl;
+	  
       SparseDirectUMFPACK  pf_direct;
       pf_direct.initialize(pf_system_matrix);
       pf_direct.vmult (pf_solution, pf_system_rhs);
       
       assemble_vf_system ();
-      
+
+	  std::cout << "   Solving for v_f..." << std::endl;
+	  
       vf_system_matrix.copy_from(vf_mass_matrix);      
       SparseDirectUMFPACK  vf_direct;
       vf_direct.initialize(vf_system_matrix);
@@ -700,19 +731,19 @@ namespace Step20
     const ComponentSelectFunction<dim>
     velocity_mask(std::make_pair(0, dim), dim+1);
 
-    ExactSolution<dim> exact_solution;
+    ExactSolution_pf<dim> exact_solution_pf;
     Vector<double> cellwise_errors (triangulation.n_active_cells());
 
     QTrapez<1>     q_trapez;
     QIterated<dim> quadrature (q_trapez, vf_degree+2);
 
-    VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution,
+    VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution_pf,
                                        cellwise_errors, quadrature,
                                        VectorTools::L2_norm,
                                        &pressure_mask);
     const double p_l2_error = cellwise_errors.l2_norm();
 
-    VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution,
+    VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution_pf,
                                        cellwise_errors, quadrature,
                                        VectorTools::L2_norm,
                                        &velocity_mask);
@@ -769,9 +800,9 @@ namespace Step20
   void MixedLaplaceProblem<dim>::run ()
   {
    make_grid_and_dofs();
-   //assemble_pf_system ();
-   //solve ();
-    //compute_errors ();
+   assemble_pf_system ();
+   solve ();
+   compute_errors ();
    // output_results ();
     
   }
