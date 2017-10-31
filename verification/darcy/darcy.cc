@@ -234,7 +234,31 @@ namespace Step20
   }
 
 
+  template <int dim>
+  class ExactSolution_vf : public Function<dim>
+  {
+  public:
+    ExactSolution_vf () : Function<dim>(dim+1) {}
 
+    virtual void vector_value (const Point<dim> &p,
+                               Vector<double>   &value) const;
+  };
+
+
+
+  template <int dim>
+  void
+  ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
+                                    Vector<double>   &values) const
+  {
+
+
+      values(0) = p[0]*p[0] + p[1]*p[1] - data::lambda*data::k*(1.0/data::phi) * (std::sin(p[0])+p[1]); 
+      values(1) = -p[0]*p[1] - data::lambda*data::k*(1.0/data::phi) * (std::cos(p[1]) + p[0] + data::rho_f);
+  }
+
+
+    
 
   template <int dim>
   class KInverse : public TensorFunction<2,dim>
@@ -438,10 +462,10 @@ namespace Step20
     
     {
     	vf_system_matrix.clear ();
-    	 vf_constraints.clear ();
-    	 DoFTools::make_hanging_node_constraints (vf_dof_handler,
+    	vf_constraints.clear ();
+    	DoFTools::make_hanging_node_constraints (vf_dof_handler,
     	                                               vf_constraints);
-    	 vf_constraints.close();
+    	vf_constraints.close();
      DynamicSparsityPattern dsp(vf_dof_handler.n_dofs());
      DoFTools::make_sparsity_pattern(vf_dof_handler,
                                         dsp,
@@ -450,12 +474,12 @@ namespace Step20
         vf_sparsity_pattern.copy_from(dsp);
         
         vf_mass_matrix.reinit (vf_sparsity_pattern);
-           vf_system_matrix.reinit (vf_sparsity_pattern);
-           vf_solution.reinit (vf_dof_handler.n_dofs());
-           vf_system_rhs.reinit (vf_dof_handler.n_dofs());
+        vf_system_matrix.reinit (vf_sparsity_pattern);
+        vf_solution.reinit (vf_dof_handler.n_dofs());
+        vf_system_rhs.reinit (vf_dof_handler.n_dofs());
              
              
-             MatrixCreator::create_mass_matrix(vf_dof_handler,
+        MatrixCreator::create_mass_matrix(vf_dof_handler,
                                                QGauss<dim>(vf_fe.degree+2),
                                                vf_mass_matrix);
     }
@@ -639,60 +663,30 @@ namespace Step20
 	     typename DoFHandler<dim>::active_cell_iterator
 	     cell = vf_dof_handler.begin_active(),
 	     endc = vf_dof_handler.end();
-	     for (; cell!=endc; ++cell)
-	       {
-	           
-	         vf_fe_values.reinit (cell);
-	         local_matrix = 0;
-	         cell->get_dof_indices (local_dof_indices);
-	      	         for (unsigned int i=0; i<dofs_per_cell; ++i)
-	      	           for (unsigned int j=0; j<dofs_per_cell; ++j)
-	      	             vf_system_matrix.add (local_dof_indices[i],
-	      	                                local_dof_indices[j],
-	      	                                local_matrix(i,j));
-	       }      
-	     
-	     
-	     
-	     /*typename DoFHandler<dim>::active_cell_iterator
-	 	 cell = vf_dof_handler.begin_active(),
-	 	 endc = vf_dof_handler.end();*/
-	     typename DoFHandler<dim>::active_cell_iterator
-		 pf_cell = pf_dof_handler.begin_active();
-	     for (; cell!=endc; ++cell, ++pf_cell)
-	     {
-	    	 vf_fe_values.reinit (cell);
-	    	 pf_fe_values.reinit (pf_cell);
-	    	 
-	         local_rhs = 0;
+//	     typename DoFHandler<dim>::active_cell_iterator
+//		 pf_cell = pf_dof_handler.begin_active();
+		 
+	     for (; cell!=endc; ++cell/*, ++pf_cell*/)
+	     	 {
+	          for (unsigned int i=0; i<dofs_per_cell; ++i)
+	          {
+	              const unsigned int
+	              component_i = vf_fe.system_to_component_index(i).first;
+	              
+	              for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+	                local_rhs(i) += 1*vf_fe_values.shape_value(i,q_point)*vf_fe_values.JxW(q_point);
+	              
+	          }
 
-	           negunitz (vf_fe_values.get_quadrature_points(), negunitz_values);
-	           rock_vel (vf_fe_values.get_quadrature_points(), rock_vel_values);
-	          // pressure_flux (fe_values.get_quadrature_points(), pressure_flux_values);
-	           
-	           pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
-	           
-	
-	           for (unsigned int i=0; i<dofs_per_cell; ++i)
-	           {
-	               const unsigned int
-	               component_i = vf_fe.system_to_component_index(i).first;
-	               
-	               for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-	                 local_rhs(i) += (vf_fe_values.shape_value(i,q_point) *
-	                 				data::lambda*data::k*(1.0/data::phi)* data::rho_f*
-	                                 negunitz_values[q_point][component_i] +  // negunitz already negative
-	                                  vf_fe_values.shape_value(i,q_point) * 
-	                                  rock_vel_values[q_point][component_i]  // rock velocity added
-	                                  -data::lambda*data::k*(1.0/data::phi)* vf_fe_values.shape_value(i,q_point) *
-	                                  grad_pf_values[q_point][component_i] // minus pressure gradient
-	                                  ) *
-	                                 vf_fe_values.JxW(q_point);
-	               
-	           }
-	         
-	         for (unsigned int i=0; i<dofs_per_cell; ++i)
-	           vf_system_rhs(local_dof_indices[i]) += local_rhs(i);
+	        cell->get_dof_indices (local_dof_indices);
+	        for (unsigned int i=0; i<dofs_per_cell; ++i)
+	          for (unsigned int j=0; j<dofs_per_cell; ++j)
+	            vf_system_matrix.add (local_dof_indices[i],
+	                               local_dof_indices[j],
+	                               local_matrix(i,j));
+	        
+	        for (unsigned int i=0; i<dofs_per_cell; ++i)
+	          vf_system_rhs(local_dof_indices[i]) += local_rhs(i);
 	     }
 	  
   }
@@ -710,9 +704,13 @@ namespace Step20
       pf_direct.vmult (pf_solution, pf_system_rhs);
       
       assemble_vf_system ();
-
+      vf_constraints.condense (vf_system_matrix);
+      vf_constraints.condense (vf_system_rhs);
+      
 	  std::cout << "   Solving for v_f..." << std::endl;
 	  
+
+      
       vf_system_matrix.copy_from(vf_mass_matrix);      
       SparseDirectUMFPACK  vf_direct;
       vf_direct.initialize(vf_system_matrix);
@@ -732,66 +730,103 @@ namespace Step20
     velocity_mask(std::make_pair(0, dim), dim+1);
 
     ExactSolution_pf<dim> exact_solution_pf;
-    Vector<double> cellwise_errors (triangulation.n_active_cells());
+    Vector<double> cellwise_errors_pf (triangulation.n_active_cells());
 
     QTrapez<1>     q_trapez;
     QIterated<dim> quadrature (q_trapez, vf_degree+2);
 
     VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution_pf,
-                                       cellwise_errors, quadrature,
+                                       cellwise_errors_pf, quadrature,
                                        VectorTools::L2_norm,
                                        &pressure_mask);
-    const double p_l2_error = cellwise_errors.l2_norm();
+    const double pf_l2_error = cellwise_errors_pf.l2_norm();
 
     VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_solution_pf,
-                                       cellwise_errors, quadrature,
+                                       cellwise_errors_pf, quadrature,
                                        VectorTools::L2_norm,
                                        &velocity_mask);
-    const double u_l2_error = cellwise_errors.l2_norm();
+    const double u_l2_error = cellwise_errors_pf.l2_norm();
 
-    std::cout << "Errors: ||e_p||_L2 = " << p_l2_error
-              << ",   ||e_u||_L2 = " << u_l2_error
-              << std::endl;
+	    ExactSolution_vf<dim> exact_solution_vf;
+	    Vector<double> cellwise_errors_vf (triangulation.n_active_cells());
+
+
+	    VectorTools::integrate_difference (vf_dof_handler, vf_solution, exact_solution_vf,
+	                                       cellwise_errors_vf, quadrature,
+	                                       VectorTools::L2_norm);
+	    const double vf_l2_error = cellwise_errors_vf.l2_norm();
+
+    std::cout << "Errors: ||e_pf||_L2 = " << pf_l2_error 
+              << "," << std::endl <<   "        ||e_u||_L2 = " << u_l2_error
+			  << ", " << std::endl <<   "        ||e_vf||_L2 = " << vf_l2_error
+			  << ". " << std::endl;
+
+
   }
-
 
 
   template <int dim>
   void MixedLaplaceProblem<dim>::output_results () const
   {
-      
-      std::vector<std::string> solution_names;
-    switch (dim)
-      {
-      case 2:
-        solution_names.push_back ("u");
-        solution_names.push_back ("v");
-        solution_names.push_back ("p");
-        break;
+//      
+//      std::vector<std::string> solution_names;
+//    switch (dim)
+//      {
+//      case 2:
+//        solution_names.push_back ("u");
+//        solution_names.push_back ("v");
+//        solution_names.push_back ("p");
+//        break;
+//
+//      case 3:
+//        solution_names.push_back ("u");
+//        solution_names.push_back ("v");
+//        solution_names.push_back ("w");
+//        solution_names.push_back ("p");
+//        break;
+//
+//      default:
+//        Assert (false, ExcNotImplemented());
+//      }
+//
+//
+//    DataOut<dim> data_out;
+//
+//    data_out.attach_dof_handler (pf_dof_handler);
+//    data_out.add_data_vector (pf_solution, solution_names);
+//
+//
+//    data_out.build_patches ();
+//
+//    std::ofstream output ("pf_solution.vtk");
+//    data_out.write_vtk (output);
+//    
+    
+    
 
-      case 3:
-        solution_names.push_back ("u");
-        solution_names.push_back ("v");
-        solution_names.push_back ("w");
-        solution_names.push_back ("p");
-        break;
-
-      default:
-        Assert (false, ExcNotImplemented());
-      }
-
-
+    std::vector<std::string> pf_names (dim, "uf");
+    pf_names.push_back ("p_f");
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    pf_component_interpretation
+    (dim+1, DataComponentInterpretation::component_is_scalar);
+    for (unsigned int i=0; i<dim; ++i)
+      pf_component_interpretation[i]
+        = DataComponentInterpretation::component_is_part_of_vector;
     DataOut<dim> data_out;
-
-    data_out.attach_dof_handler (pf_dof_handler);
-    data_out.add_data_vector (pf_solution, solution_names);
-
-
-    data_out.build_patches ();
-
-    std::ofstream output ("pf_solution.vtk");
+    
+    data_out.add_data_vector (pf_dof_handler, pf_solution,
+                              pf_names, pf_component_interpretation);
+    data_out.add_data_vector (vf_dof_handler, vf_solution,
+                              "v_f");
+    
+    data_out.build_patches (std::min(pf_degree, vf_degree));
+    std::ostringstream filename;
+    filename << "solution.vtk";
+    std::ofstream output (filename.str().c_str());
     data_out.write_vtk (output);
   }
+  
+  
 
 
 
@@ -803,7 +838,7 @@ namespace Step20
    assemble_pf_system ();
    solve ();
    compute_errors ();
-   // output_results ();
+   output_results ();
     
   }
 }
