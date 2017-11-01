@@ -560,8 +560,8 @@ namespace Step20
                                        * pf_fe_values.JxW(q);
                 }
 
-              local_rhs(i) += phi_i_p *
-                              rhs_values[q] *
+              local_rhs(i) += (phi_i_p *
+                              rhs_values[q] )*
                               pf_fe_values.JxW(q);
               // BE CAREFUL HERE ONCE K is not constant or 1 anymore
             }
