@@ -76,7 +76,6 @@ namespace Step20
       const double lambda = 0.7;
       const double perm_const = 0.3;
       
-      const double k = 0.3;
       const double phi = 0.7;
 
 
@@ -199,9 +198,10 @@ namespace Step20
       for (unsigned int point_n = 0; point_n < points.size(); ++point_n)
       {
           
-          values[point_n][0] = points[point_n][0]*points[point_n][0] +
-                                      points[point_n][1]*points[point_n][1];
-          values[point_n][1] = -points[point_n][1]*points[point_n][0];
+          values[point_n][0] = 0.5*(points[point_n][0]*points[point_n][0] +
+                                      points[point_n][1]*points[point_n][1]);
+          values[point_n][1] =  data::lambda*data::perm_const*data::rho_f*points[point_n][1]*points[point_n][1]
+        		  -points[point_n][1]*points[point_n][0];
       }
       
   }
@@ -253,8 +253,8 @@ namespace Step20
   {
 
 
-      values(0) = p[0]*p[0] + p[1]*p[1] - data::lambda*data::k*(1.0/data::phi) * (std::sin(p[0])+p[1]); 
-      values(1) = -p[0]*p[1] - data::lambda*data::k*(1.0/data::phi) * (std::cos(p[1]) + p[0] + data::rho_f);
+      values(0) = 0.5*(p[0]*p[0] + p[1]*p[1]); 
+      values(1) = -p[0]*p[1] + data::lambda*data::perm_const*(1.0-1.0/data::phi)*data::rho_f*p[1]*p[1] ;
   }
 
 
@@ -346,7 +346,7 @@ namespace Step20
     pf_dof_handler (triangulation),
 	
 	vf_degree (degree),
-	vf_fe (FE_Q<dim>(vf_degree), dim),
+	vf_fe (FE_Q<dim>(vf_degree+1), dim),
 	vf_dof_handler (triangulation)
 	
   {}
@@ -673,7 +673,9 @@ namespace Step20
 	    	 	 
 	    	 	 local_matrix = 0;
 	    	 	 local_rhs = 0;
-	    	 
+	    	 	 
+	    	 	 negunitz (vf_fe_values.get_quadrature_points(), negunitz_values);
+	    	 	 rock_vel (vf_fe_values.get_quadrature_points(), rock_vel_values);
 	    	 	 pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
 	    	 	 
 	          for (unsigned int i=0; i<dofs_per_cell; ++i)
@@ -683,11 +685,11 @@ namespace Step20
 	              
 	              for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
 	                local_rhs(i) +=    (vf_fe_values.shape_value(i,q_point) *
-	                		              data::lambda*data::k*(1.0/data::phi)* data::rho_f*
+	                		              data::lambda*data::perm_const*(1.0/data::phi)* data::rho_f*
 	                		              negunitz_values[q_point][component_i] +  // negunitz already negative
 	                		               vf_fe_values.shape_value(i,q_point) * 
 	                		                rock_vel_values[q_point][component_i]  // rock velocity added
-	                		                  -data::lambda*data::k*(1.0/data::phi)* vf_fe_values.shape_value(i,q_point) *
+	                		                  -data::lambda*data::perm_const*(1.0/data::phi)* vf_fe_values.shape_value(i,q_point) *
 	                		                      grad_pf_values[q_point][component_i] // minus pressure gradient
 	                		                        ) *
 	                		                                vf_fe_values.JxW(q_point);
