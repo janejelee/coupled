@@ -397,6 +397,7 @@ namespace Step20
         
         pf_constraints.clear();
         pf_constraints.close();
+        
         vf_dof_handler.distribute_dofs (vf_fe);
         
         
@@ -461,7 +462,7 @@ namespace Step20
           
     
     {
-    	vf_system_matrix.clear ();
+    	//vf_system_matrix.clear ();
     	vf_constraints.clear ();
     	DoFTools::make_hanging_node_constraints (vf_dof_handler,
     	                                               vf_constraints);
@@ -647,6 +648,7 @@ namespace Step20
 
 	     FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
 	     Vector<double>       local_rhs (dofs_per_cell);
+	     
 	     std::vector<Tensor<1,dim> > grad_pf_values (n_q_points);
 
 	     std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
@@ -668,6 +670,10 @@ namespace Step20
 		 
 	     for (; cell!=endc; ++cell/*, ++pf_cell*/)
 	     	 {
+	    	 	 vf_fe_values.reinit(cell);
+	    	 	 local_matrix = 0;
+	    	 	 local_rhs = 0;
+	    	 
 	          for (unsigned int i=0; i<dofs_per_cell; ++i)
 	          {
 	              const unsigned int
@@ -688,7 +694,8 @@ namespace Step20
 	        for (unsigned int i=0; i<dofs_per_cell; ++i)
 	          vf_system_rhs(local_dof_indices[i]) += local_rhs(i);
 	     }
-	  
+	        vf_constraints.condense (vf_system_matrix);
+	        vf_constraints.condense (vf_system_rhs);
   }
 
 
@@ -704,14 +711,12 @@ namespace Step20
       pf_direct.vmult (pf_solution, pf_system_rhs);
       
       assemble_vf_system ();
-      vf_constraints.condense (vf_system_matrix);
-      vf_constraints.condense (vf_system_rhs);
+
       
 	  std::cout << "   Solving for v_f..." << std::endl;
 	  
-
+      vf_system_matrix.copy_from(vf_mass_matrix);    
       
-      vf_system_matrix.copy_from(vf_mass_matrix);      
       SparseDirectUMFPACK  vf_direct;
       vf_direct.initialize(vf_system_matrix);
       vf_direct.vmult (vf_solution, vf_system_rhs);
