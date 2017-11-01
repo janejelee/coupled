@@ -656,7 +656,6 @@ namespace Step20
 	     
 	       std::vector<Tensor<1,dim>>     negunitz_values (n_q_points);
 	       std::vector<Tensor<1,dim>>     rock_vel_values (n_q_points);
-	       // std::vector<Tensor<1,dim>>     pressure_flux_values (n_q_points);
 	       
 	       const FEValuesExtractors::Vector velocities (0);
 	       const FEValuesExtractors::Scalar pressure (dim);
@@ -665,22 +664,33 @@ namespace Step20
 	     typename DoFHandler<dim>::active_cell_iterator
 	     cell = vf_dof_handler.begin_active(),
 	     endc = vf_dof_handler.end();
-//	     typename DoFHandler<dim>::active_cell_iterator
-//		 pf_cell = pf_dof_handler.begin_active();
-		 
-	     for (; cell!=endc; ++cell/*, ++pf_cell*/)
+	     typename DoFHandler<dim>::active_cell_iterator
+		 pf_cell = pf_dof_handler.begin_active(); 
+	     for (; cell!=endc; ++cell, ++pf_cell)
 	     	 {
 	    	 	 vf_fe_values.reinit(cell);
+	    	 	 pf_fe_values.reinit(pf_cell);
+	    	 	 
 	    	 	 local_matrix = 0;
 	    	 	 local_rhs = 0;
 	    	 
+	    	 	 pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
+	    	 	 
 	          for (unsigned int i=0; i<dofs_per_cell; ++i)
 	          {
 	              const unsigned int
 	              component_i = vf_fe.system_to_component_index(i).first;
 	              
 	              for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-	                local_rhs(i) += 1*vf_fe_values.shape_value(i,q_point)*vf_fe_values.JxW(q_point);
+	                local_rhs(i) +=    (vf_fe_values.shape_value(i,q_point) *
+	                		              data::lambda*data::k*(1.0/data::phi)* data::rho_f*
+	                		              negunitz_values[q_point][component_i] +  // negunitz already negative
+	                		               vf_fe_values.shape_value(i,q_point) * 
+	                		                rock_vel_values[q_point][component_i]  // rock velocity added
+	                		                  -data::lambda*data::k*(1.0/data::phi)* vf_fe_values.shape_value(i,q_point) *
+	                		                      grad_pf_values[q_point][component_i] // minus pressure gradient
+	                		                        ) *
+	                		                                vf_fe_values.JxW(q_point);
 	              
 	          }
 
