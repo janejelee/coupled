@@ -4,7 +4,7 @@
  *
  * This file is part of the deal.II library.
  *
- * The deal.II library is free software; you can use it, redistribute
+ * The deacd .l.II library is free software; you can use it, redistribute
  * it, and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
@@ -74,6 +74,8 @@ namespace Step22
         const double right = PI;
         const double left = 0.0;
         const int dimension = 2;
+        const int degree = 1;
+        const int refinement_level = 3;
         
     }
     
@@ -220,7 +222,36 @@ namespace Step22
     template <int dim>
     void StokesProblem<dim>::setup_dofs ()
     {
-
+        std::vector<unsigned int> subdivisions (dim, 1);
+        subdivisions[0] = 4;
+        
+        const Point<dim> bottom_left = (dim == 2 ?
+                                        Point<dim>(data::left,data::bottom) :
+                                        Point<dim>(-2,0,-1));
+        const Point<dim> top_right   = (dim == 2 ?
+                                        Point<dim>(data::right,data::top) :
+                                        Point<dim>(0,1,0));
+        
+        GridGenerator::subdivided_hyper_rectangle (triangulation,
+                                                   subdivisions,
+                                                   bottom_left,
+                                                   top_right);
+        
+        
+        for (typename Triangulation<dim>::active_cell_iterator
+             cell = triangulation.begin_active();
+             cell != triangulation.end(); ++cell)
+            for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
+                if (cell->face(f)->center()[dim-1] == data::top)
+                    cell->face(f)->set_all_boundary_ids(1);
+                else if (cell->face(f)->center()[dim-1] == data::bottom)
+                    cell->face(f)->set_all_boundary_ids(2);
+        
+        
+        
+        
+        triangulation.refine_global (data::refinement_level);
+        
         system_matrix.clear ();
         
         dof_handler.distribute_dofs (fe);
@@ -532,39 +563,13 @@ namespace Step22
     void StokesProblem<dim>::run ()
     {
     	
-            std::vector<unsigned int> subdivisions (dim, 1);
-            subdivisions[0] = 4;
-            
-            const Point<dim> bottom_left = (dim == 2 ?
-                                            Point<dim>(data::left,data::bottom) :
-                                            Point<dim>(-2,0,-1));
-            const Point<dim> top_right   = (dim == 2 ?
-                                            Point<dim>(data::right,data::top) :
-                                            Point<dim>(0,1,0));
-            
-            GridGenerator::subdivided_hyper_rectangle (triangulation,
-                                                       subdivisions,
-                                                       bottom_left,
-                                                       top_right);
-        
-        
-        for (typename Triangulation<dim>::active_cell_iterator
-             cell = triangulation.begin_active();
-             cell != triangulation.end(); ++cell)
-            for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
-                if (cell->face(f)->center()[dim-1] == data::top)
-                    cell->face(f)->set_all_boundary_ids(1);
-                else if (cell->face(f)->center()[dim-1] == data::bottom)
-                    cell->face(f)->set_all_boundary_ids(2);
-                    
-
-        
-        
-        triangulation.refine_global (3);
-        
 
             setup_dofs ();
-            
+        
+        std::cout << "   Problem degree: " << data::degree << std::endl << std::flush;
+        std::cout << "   Refinement level: " << data::refinement_level << std::endl << std::flush;
+
+        
             std::cout << "   Assembling..." << std::endl << std::flush;
             assemble_system ();
             
@@ -586,7 +591,7 @@ int main ()
         using namespace dealii;
         using namespace Step22;
         
-        StokesProblem<data::dimension> flow_problem(1);
+        StokesProblem<data::dimension> flow_problem(data::degree);
         flow_problem.run ();
     }
     catch (std::exception &exc)
