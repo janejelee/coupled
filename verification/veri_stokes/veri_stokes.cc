@@ -77,7 +77,7 @@ namespace Step22
         
         const int dimension = 2;
         const int degree = 1;
-        const int refinement_level = 3;
+        const int refinement_level = 4;
         
     }
     
@@ -119,10 +119,10 @@ namespace Step22
     
 
     template <int dim>
-    class BoundaryValues : public Function<dim>
+    class BoundaryValuesTop : public Function<dim>
     {
     public:
-      BoundaryValues () : Function<dim>(dim+1) {}
+      BoundaryValuesTop () : Function<dim>(dim+1) {}
       virtual double value (const Point<dim>   &p,
                             const unsigned int  component = 0) const;
       virtual void vector_value (const Point<dim> &p,
@@ -130,7 +130,7 @@ namespace Step22
     };
     template <int dim>
     double
-    BoundaryValues<dim>::value (const Point<dim>  &p,
+    BoundaryValuesTop<dim>::value (const Point<dim>  &p,
                                 const unsigned int component) const
     {
     	
@@ -143,14 +143,49 @@ namespace Step22
     
     template <int dim>
     void
-    BoundaryValues<dim>::vector_value (const Point<dim> &p,
+    BoundaryValuesTop<dim>::vector_value (const Point<dim> &p,
                                        Vector<double>   &values) const
     {
       for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = BoundaryValues<dim>::value (p, c);
+        values(c) = BoundaryValuesTop<dim>::value (p, c);
     }
 
 
+    template <int dim>
+    class BoundaryValuesBottom : public Function<dim>
+    {
+    public:
+      BoundaryValuesBottom () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+    template <int dim>
+    double
+    BoundaryValuesBottom<dim>::value (const Point<dim>  &p,
+                                const unsigned int component) const
+    {
+    	
+    		if (component == 0) // conditions for top and bottome
+    			return 0.0;
+    		else if (component == 1)
+    			return 0.5*p[1]*p[1]+2.0;
+      return 0.0;
+    }
+    
+    template <int dim>
+    void
+    BoundaryValuesBottom<dim>::vector_value (const Point<dim> &p,
+                                       Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = BoundaryValuesBottom<dim>::value (p, c);
+    }
+
+
+    
+    
     template <int dim>
     class RightHandSide : public Function<dim>
     {
@@ -203,8 +238,8 @@ namespace Step22
     ExactSolution<dim>::vector_value (const Point<dim> &p,
                                       Vector<double>   &values) const
     {
-      values(0) = 0;
-      values(1) = 0.5*p[1]*p[1]+2.0;
+      values(0) = std::sin(PI*p[1]) * std::sin(p[0]);
+      values(1) = 1./PI * std::cos(PI*p[1]) * std::cos(p[0]);
       values(2) = p[1]*p[1]+2.0*p[1];
     }
 
@@ -224,7 +259,36 @@ namespace Step22
     template <int dim>
     void StokesProblem<dim>::setup_dofs ()
     {
+        std::vector<unsigned int> subdivisions (dim, 1);
+        subdivisions[0] = 4;
+        
+        const Point<dim> bottom_left = (dim == 2 ?
+                                        Point<dim>(data::left,data::bottom) :
+                                        Point<dim>(-2,0,-1));
+        const Point<dim> top_right   = (dim == 2 ?
+                                        Point<dim>(data::right,data::top) :
+                                        Point<dim>(0,1,0));
+        
+        GridGenerator::subdivided_hyper_rectangle (triangulation,
+                                                   subdivisions,
+                                                   bottom_left,
+                                                   top_right);
+    
+    
+    for (typename Triangulation<dim>::active_cell_iterator
+         cell = triangulation.begin_active();
+         cell != triangulation.end(); ++cell)
+        for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
+            if (cell->face(f)->center()[dim-1] == data::top)
+                cell->face(f)->set_all_boundary_ids(1);
+            else if (cell->face(f)->center()[dim-1] == data::bottom)
+                cell->face(f)->set_all_boundary_ids(2);
+                
 
+    
+    
+    triangulation.refine_global (data::refinement_level);
+    
         system_matrix.clear ();
         
         dof_handler.distribute_dofs (fe);
@@ -245,13 +309,13 @@ namespace Step22
             
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
-                                                      BoundaryValues<dim>(),
+                                                      BoundaryValuesTop<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
             
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       2,
-                                                      BoundaryValues<dim>(),
+                                                      BoundaryValuesBottom<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
                                                      
@@ -535,36 +599,6 @@ namespace Step22
     void StokesProblem<dim>::run ()
     {
     	
-            std::vector<unsigned int> subdivisions (dim, 1);
-            subdivisions[0] = 4;
-            
-            const Point<dim> bottom_left = (dim == 2 ?
-                                            Point<dim>(data::left,data::bottom) :
-                                            Point<dim>(-2,0,-1));
-            const Point<dim> top_right   = (dim == 2 ?
-                                            Point<dim>(data::right,data::top) :
-                                            Point<dim>(0,1,0));
-            
-            GridGenerator::subdivided_hyper_rectangle (triangulation,
-                                                       subdivisions,
-                                                       bottom_left,
-                                                       top_right);
-        
-        
-        for (typename Triangulation<dim>::active_cell_iterator
-             cell = triangulation.begin_active();
-             cell != triangulation.end(); ++cell)
-            for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
-                if (cell->face(f)->center()[dim-1] == data::top)
-                    cell->face(f)->set_all_boundary_ids(1);
-                else if (cell->face(f)->center()[dim-1] == data::bottom)
-                    cell->face(f)->set_all_boundary_ids(2);
-                    
-
-        
-        
-        triangulation.refine_global (data::refinement_level);
-        
 
             setup_dofs ();
             
@@ -576,7 +610,7 @@ namespace Step22
             std::cout << "   Solving..." << std::flush;
             solve ();
             
-            output_results (1);
+            output_results ();
             error_analysis ();
             std::cout << std::endl;
     }
