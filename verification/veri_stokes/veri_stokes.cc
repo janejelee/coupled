@@ -69,11 +69,15 @@ namespace Step22
     namespace data
     {
         const double eta = 1.0;
+        
         const double top = 1.0;
-        const double bottom = 0.0;
-        const double right = PI;
+        const double bottom = 0.0;      
         const double left = 0.0;
+        const double right = PI;
+        
         const int dimension = 2;
+        const int degree = 1;
+        const int refinement_level = 3;
         
     }
     
@@ -91,7 +95,7 @@ namespace Step22
         void setup_dofs ();
         void assemble_system ();
         void solve ();
-        void output_results (const unsigned int refinement_cycle) const;
+        void output_results ();
         void error_analysis ();
         void refine_mesh ();
         
@@ -130,7 +134,7 @@ namespace Step22
                                 const unsigned int component) const
     {
     	
-    		if (component == 0)
+    		if (component == 0) // conditions for top and bottome
     			return 0.0;
     		else if (component == 1)
     			return 0.5*p[1]*p[1]+2.0;
@@ -467,7 +471,7 @@ namespace Step22
     
     template <int dim>
     void
-    StokesProblem<dim>::output_results (const unsigned int refinement_cycle)  const
+    StokesProblem<dim>::output_results ()
     {
         std::vector<std::string> solution_names (dim, "velocity");
         solution_names.push_back ("pressure");
@@ -486,8 +490,7 @@ namespace Step22
         data_out.build_patches ();
         
         std::ostringstream filename;
-        filename << "solution-"
-        << Utilities::int_to_string (refinement_cycle, 2)
+        filename << "solution"
         << ".vtk";
         
         std::ofstream output (filename.str().c_str());
@@ -560,14 +563,16 @@ namespace Step22
 
         
         
-        triangulation.refine_global (3);
+        triangulation.refine_global (data::refinement_level);
         
 
             setup_dofs ();
             
             std::cout << "   Assembling..." << std::endl << std::flush;
             assemble_system ();
-            
+            std::cout << "   Problem Degree = " << data::degree << ". " << std::endl;
+            std::cout << "   Refinement level = " << data::refinement_level << ". " << std::endl;
+            		std::cout << "   Assembling..." << std::endl;
             std::cout << "   Solving..." << std::flush;
             solve ();
             
@@ -586,7 +591,7 @@ int main ()
         using namespace dealii;
         using namespace Step22;
         
-        StokesProblem<data::dimension> flow_problem(1);
+        StokesProblem<data::dimension> flow_problem(data::degree);
         flow_problem.run ();
     }
     catch (std::exception &exc)
