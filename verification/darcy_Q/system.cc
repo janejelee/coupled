@@ -57,8 +57,8 @@ namespace System
     using namespace numbers;
     namespace data
     {
-        const int problem_degree = 2;
-        const int refinement_level = 3;
+        const int problem_degree = 1;
+        const int refinement_level = 4;
         const int dimension = 2;
         
         const double rho_f = 2.5;
@@ -225,12 +225,8 @@ namespace System
     ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
                                          Vector<double>   &values) const
     {
-        values(0) = 0.0; // 0.5* (p[0]*p[0] + p[1]*p[1]);
-        values(1) = data::lambda * data::perm_const * data::rho_f * (1.0/data::phi) * (1.0- p[1]*p[1])
-        -data::lambda * data::perm_const * data::rho_f * (1.0/data::phi);
-        //    		  data::lambda * data::perm_const * data::rho_f * p[1]*p[1]
-        //							 - p[0]*p[1]
-        //									  -data::lambda * data::perm_const * data::rho_f * (1.0/data::phi)*p[1]*p[1];
+        values(0) = 0.0;
+        values(1) = -data::rho_f*(1.0-p[1]*p[1]);
         
     }
 
@@ -401,7 +397,7 @@ namespace System
         pf_system_rhs.collect_sizes ();
         
         {
-            //vf_system_matrix.clear ();
+            vf_system_matrix.clear ();
             vf_constraints.clear ();
             DoFTools::make_hanging_node_constraints (vf_dof_handler,
                                                      vf_constraints);
@@ -625,13 +621,13 @@ namespace System
                      component_i = vf_fe.system_to_component_index(i).first;
                      
                      for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-                         local_rhs(i) +=    (-vf_fe_values.shape_value(i,q_point) *
+                         local_rhs(i) +=    (-0.0*vf_fe_values.shape_value(i,q_point) *
                                              data::lambda*data::perm_const*(1.0/data::phi)* data::rho_f*
                                              unitz_values[q_point][component_i] +
                                              0.0* vf_fe_values.shape_value(i,q_point) *
                                              rock_vel_values[q_point][component_i]  // rock velocity added
                                              - vf_fe_values.shape_value(i,q_point) *
-                                             data::lambda*data::perm_const*(1.0/data::phi)* grad_pf_values[q_point][component_i] // minus pressure gradient
+                                             /*data::lambda*data::perm_const*(1.0/data::phi)* */ -grad_pf_values[q_point][component_i] // minus pressure gradient
                                              ) *
                          vf_fe_values.JxW(q_point);
                      
@@ -650,29 +646,29 @@ namespace System
         vf_constraints.condense (vf_system_matrix);
         vf_constraints.condense (vf_system_rhs);
         
-        //        std::map<types::global_dof_index, double> vf_boundary;
-        //                {
-        //                        types::global_dof_index n_dofs = vf_dof_handler.n_dofs();
-        //                        std::vector<bool> componentVector(dim, true);
-        ////                        componentVector[0] = false;
-        //                        std::vector<bool> selected_dofs(n_dofs);
-        //                        std::set< types::boundary_id > boundary_ids;
-        //                        boundary_ids.insert(2);
-        //
-        //                        DoFTools::extract_boundary_dofs(vf_dof_handler, ComponentMask(componentVector),
-        //                                selected_dofs, boundary_ids);
-        //
-        //                        for (types::global_dof_index i = 0; i < n_dofs; i++) {
-        //                            if (selected_dofs[i]) vf_boundary[i] = 00.0;
-        //                        }
-        //
-        //                }
+                std::map<types::global_dof_index, double> vf_boundary;
+                        {
+                                types::global_dof_index n_dofs = vf_dof_handler.n_dofs();
+                                std::vector<bool> componentVector(dim, true);
+        //                        componentVector[0] = false;
+                                std::vector<bool> selected_dofs(n_dofs);
+                                std::set< types::boundary_id > boundary_ids;
+                                boundary_ids.insert(1);
         
+                                DoFTools::extract_boundary_dofs(vf_dof_handler, ComponentMask(componentVector),
+                                        selected_dofs, boundary_ids);
         
-        vf_system_matrix.copy_from(vf_mass_matrix);    
-        //	        MatrixTools::apply_boundary_values(vf_boundary,
-        //	                vf_system_matrix, vf_solution, vf_system_rhs);
-    }     
+                                for (types::global_dof_index i = 0; i < n_dofs; i++) {
+                                    if (selected_dofs[i]) vf_boundary[i] = 00.0;
+                                }
+        
+                        }
+   
+        
+        vf_system_matrix.copy_from(vf_mass_matrix);
+        	        MatrixTools::apply_boundary_values(vf_boundary,
+        	                vf_system_matrix, vf_solution, vf_system_rhs);
+    }
     
   
     template <int dim>
@@ -682,6 +678,13 @@ namespace System
         SparseDirectUMFPACK  pf_direct;
         pf_direct.initialize(pf_system_matrix);
         pf_direct.vmult (pf_solution, pf_system_rhs);
+        assemble_vf_system ();
+        
+        
+        std::cout << "   Solving for v_f..." << std::endl;
+        SparseDirectUMFPACK  vf_direct;
+        vf_direct.initialize(vf_system_matrix);
+        vf_direct.vmult (vf_solution, vf_system_rhs);
         
         
         
@@ -706,17 +709,29 @@ namespace System
                                            cellwise_errors, quadrature,
                                            VectorTools::L2_norm,
                                            &pressure_mask);
-        const double p_l2_error = cellwise_errors.l2_norm();
+        const double pf_l2_error = cellwise_errors.l2_norm();
         
         VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_pf_solution,
                                            cellwise_errors, quadrature,
                                            VectorTools::L2_norm,
                                            &velocity_mask);
         const double u_l2_error = cellwise_errors.l2_norm();
+    
         
-        std::cout << "Errors: ||e_p||_L2 = " << p_l2_error
-        << ",   ||e_u||_L2 = " << u_l2_error
-        << std::endl;
+        ExactSolution_vf<dim> exact_solution_vf;
+        Vector<double> cellwise_errors_vf (triangulation.n_active_cells());
+        
+        
+        VectorTools::integrate_difference (vf_dof_handler, vf_solution, exact_solution_vf,
+                                           cellwise_errors_vf, quadrature,
+                                           VectorTools::L2_norm);
+        const double vf_l2_error = cellwise_errors_vf.l2_norm();
+        
+        std::cout << "Errors: ||e_pf||_L2 = " << pf_l2_error
+        << "," << std::endl <<   "        ||e_u||_L2 = " << u_l2_error
+        << ", " << std::endl <<   "        ||e_vf||_L2 = " << vf_l2_error
+        << ". " << std::endl;
+
     }
     
     
@@ -724,37 +739,25 @@ namespace System
     template <int dim>
     void MixedLaplaceProblem<dim>::output_results () const
     {
-        
-        std::vector<std::string> solution_names;
-        switch (dim)
-        {
-            case 2:
-                solution_names.push_back ("u");
-                solution_names.push_back ("v");
-                solution_names.push_back ("p");
-                break;
-                
-            case 3:
-                solution_names.push_back ("u");
-                solution_names.push_back ("v");
-                solution_names.push_back ("w");
-                solution_names.push_back ("p");
-                break;
-                
-            default:
-                Assert (false, ExcNotImplemented());
-        }
-        
-        
+        std::vector<std::string> pf_names (dim, "uf");
+        pf_names.push_back ("p_f");
+        std::vector<DataComponentInterpretation::DataComponentInterpretation>
+        pf_component_interpretation
+        (dim+1, DataComponentInterpretation::component_is_scalar);
+        for (unsigned int i=0; i<dim; ++i)
+            pf_component_interpretation[i]
+            = DataComponentInterpretation::component_is_part_of_vector;
         DataOut<dim> data_out;
         
-        data_out.attach_dof_handler (pf_dof_handler);
-        data_out.add_data_vector (pf_solution, solution_names);
+        data_out.add_data_vector (pf_dof_handler, pf_solution,
+                                  pf_names, pf_component_interpretation);
+        data_out.add_data_vector (vf_dof_handler, vf_solution,
+                                  "v_f");
         
-        
-        data_out.build_patches ();
-        
-        std::ofstream output ("solution.vtk");
+        data_out.build_patches (std::min(pf_degree, vf_degree));
+        std::ostringstream filename;
+        filename << "solution.vtk";
+        std::ofstream output (filename.str().c_str());
         data_out.write_vtk (output);
     }
     
