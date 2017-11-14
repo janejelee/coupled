@@ -69,13 +69,19 @@ namespace Step22
     namespace data
     {
         const double eta = 1.0;
+        
         const double top = 1.0;
-        const double bottom = 0.0;
-        const double right = PI;
+        const double bottom = 0.0;      
         const double left = 0.0;
+        const double right = PI;
+        
         const int dimension = 2;
         const int degree = 1;
+<<<<<<< HEAD
         const int refinement_level = 3;
+=======
+        const int refinement_level = 4;
+>>>>>>> edd74abe659340a2e3aaa078d7185bdbbe918570
         
     }
     
@@ -93,7 +99,7 @@ namespace Step22
         void setup_dofs ();
         void assemble_system ();
         void solve ();
-        void output_results (const unsigned int refinement_cycle) const;
+        void output_results ();
         void error_analysis ();
         void refine_mesh ();
         
@@ -117,10 +123,10 @@ namespace Step22
     
 
     template <int dim>
-    class BoundaryValues : public Function<dim>
+    class BoundaryValuesTop : public Function<dim>
     {
     public:
-      BoundaryValues () : Function<dim>(dim+1) {}
+      BoundaryValuesTop () : Function<dim>(dim+1) {}
       virtual double value (const Point<dim>   &p,
                             const unsigned int  component = 0) const;
       virtual void vector_value (const Point<dim> &p,
@@ -128,11 +134,11 @@ namespace Step22
     };
     template <int dim>
     double
-    BoundaryValues<dim>::value (const Point<dim>  &p,
+    BoundaryValuesTop<dim>::value (const Point<dim>  &p,
                                 const unsigned int component) const
     {
     	
-    		if (component == 0)
+    		if (component == 0) // conditions for top and bottome
     			return 0.0;
     		else if (component == 1)
     			return 0.5*p[1]*p[1]+2.0;
@@ -141,14 +147,49 @@ namespace Step22
     
     template <int dim>
     void
-    BoundaryValues<dim>::vector_value (const Point<dim> &p,
+    BoundaryValuesTop<dim>::vector_value (const Point<dim> &p,
                                        Vector<double>   &values) const
     {
       for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = BoundaryValues<dim>::value (p, c);
+        values(c) = BoundaryValuesTop<dim>::value (p, c);
     }
 
 
+    template <int dim>
+    class BoundaryValuesBottom : public Function<dim>
+    {
+    public:
+      BoundaryValuesBottom () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+    template <int dim>
+    double
+    BoundaryValuesBottom<dim>::value (const Point<dim>  &p,
+                                const unsigned int component) const
+    {
+    	
+    		if (component == 0) // conditions for top and bottome
+    			return 0.0;
+    		else if (component == 1)
+    			return 0.5*p[1]*p[1]+2.0;
+      return 0.0;
+    }
+    
+    template <int dim>
+    void
+    BoundaryValuesBottom<dim>::vector_value (const Point<dim> &p,
+                                       Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = BoundaryValuesBottom<dim>::value (p, c);
+    }
+
+
+    
+    
     template <int dim>
     class RightHandSide : public Function<dim>
     {
@@ -201,8 +242,8 @@ namespace Step22
     ExactSolution<dim>::vector_value (const Point<dim> &p,
                                       Vector<double>   &values) const
     {
-      values(0) = 0;
-      values(1) = 0.5*p[1]*p[1]+2.0;
+      values(0) = std::sin(PI*p[1]) * std::sin(p[0]);
+      values(1) = 1./PI * std::cos(PI*p[1]) * std::cos(p[0]);
       values(2) = p[1]*p[1]+2.0*p[1];
     }
 
@@ -236,6 +277,7 @@ namespace Step22
                                                    subdivisions,
                                                    bottom_left,
                                                    top_right);
+<<<<<<< HEAD
         
         
         for (typename Triangulation<dim>::active_cell_iterator
@@ -252,6 +294,24 @@ namespace Step22
         
         triangulation.refine_global (data::refinement_level);
         
+=======
+    
+    
+    for (typename Triangulation<dim>::active_cell_iterator
+         cell = triangulation.begin_active();
+         cell != triangulation.end(); ++cell)
+        for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
+            if (cell->face(f)->center()[dim-1] == data::top)
+                cell->face(f)->set_all_boundary_ids(1);
+            else if (cell->face(f)->center()[dim-1] == data::bottom)
+                cell->face(f)->set_all_boundary_ids(2);
+                
+
+    
+    
+    triangulation.refine_global (data::refinement_level);
+    
+>>>>>>> edd74abe659340a2e3aaa078d7185bdbbe918570
         system_matrix.clear ();
         
         dof_handler.distribute_dofs (fe);
@@ -272,13 +332,13 @@ namespace Step22
             
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
-                                                      BoundaryValues<dim>(),
+                                                      BoundaryValuesTop<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
             
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       2,
-                                                      BoundaryValues<dim>(),
+                                                      BoundaryValuesBottom<dim>(),
                                                       constraints,
                                                       fe.component_mask(velocities));
                                                      
@@ -498,7 +558,7 @@ namespace Step22
     
     template <int dim>
     void
-    StokesProblem<dim>::output_results (const unsigned int refinement_cycle)  const
+    StokesProblem<dim>::output_results ()
     {
         std::vector<std::string> solution_names (dim, "velocity");
         solution_names.push_back ("pressure");
@@ -517,8 +577,7 @@ namespace Step22
         data_out.build_patches ();
         
         std::ostringstream filename;
-        filename << "solution-"
-        << Utilities::int_to_string (refinement_cycle, 2)
+        filename << "solution"
         << ".vtk";
         
         std::ofstream output (filename.str().c_str());
@@ -563,20 +622,25 @@ namespace Step22
     void StokesProblem<dim>::run ()
     {
     	
+<<<<<<< HEAD
 
             setup_dofs ();
         
         std::cout << "   Problem degree: " << data::degree << std::endl << std::flush;
         std::cout << "   Refinement level: " << data::refinement_level << std::endl << std::flush;
+=======
+>>>>>>> edd74abe659340a2e3aaa078d7185bdbbe918570
 
         
             std::cout << "   Assembling..." << std::endl << std::flush;
             assemble_system ();
-            
+            std::cout << "   Problem Degree = " << data::degree << ". " << std::endl;
+            std::cout << "   Refinement level = " << data::refinement_level << ". " << std::endl;
+            		std::cout << "   Assembling..." << std::endl;
             std::cout << "   Solving..." << std::flush;
             solve ();
             
-            output_results (1);
+            output_results ();
             error_analysis ();
             std::cout << std::endl;
     }

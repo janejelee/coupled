@@ -1,0 +1,11 @@
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/rebuild_cache.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/edit_cache.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/strip_comments.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/distclean.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/runclean.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/run.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/release.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/sign.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/debug.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/info.dir
+/Users/janelee/Documents/fullmodel/verification/veri_stokes/CMakeFiles/veri_stokes.dir
