@@ -76,10 +76,10 @@ namespace System
     }
     
     template <int dim>
-    class MixedLaplaceProblem
+    class DAE
     {
     public:
-        MixedLaplaceProblem (const unsigned int degree);
+        DAE (const unsigned int degree);
         void run ();
         
     private:
@@ -178,8 +178,8 @@ namespace System
                                 const unsigned int component) const
     {
 
-    		if (component == 0) // conditions for top and bottome
-    			return 0.0;
+    		if (component == 0)
+    			return p[0]*0.0; // put in only to omit warning on work computer
     		else if (component == 1)
     			return 0.0;
       return 0.0;
@@ -473,7 +473,7 @@ namespace System
     
     
     template <int dim>
-    MixedLaplaceProblem<dim>::MixedLaplaceProblem (const unsigned int degree)
+    DAE<dim>::DAE (const unsigned int degree)
     :
     pr_degree (degree),
     rock_fe (FE_Q<dim>(pr_degree+1), dim,
@@ -494,7 +494,7 @@ namespace System
     
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::make_grid_and_dofs ()
+    void DAE<dim>::make_grid_and_dofs ()
     {
         {
             std::vector<unsigned int> subdivisions (dim, 1);
@@ -683,10 +683,130 @@ namespace System
         
     }
     
-    
+
+    template <int dim>
+    void DAE<dim>::assemble_rock_system ()
+    {
+
+    	rock_system_matrix=0;
+        rock_system_rhs=0;
+
+        QGauss<dim>   quadrature_formula(pr_degree+2);
+        QGauss<dim-1> face_quadrature_formula(pr_degree+2);
+
+        FEValues<dim> rock_fe_values (rock_fe, quadrature_formula,
+                                 update_values    |
+                                 update_quadrature_points  |
+                                 update_JxW_values |
+                                 update_gradients);
+
+        FEFaceValues<dim> rock_fe_face_values ( rock_fe, face_quadrature_formula,
+                                          update_values |
+                                          update_normal_vectors |
+                                          update_quadrature_points |
+                                          update_JxW_values
+                                          );
+
+        const unsigned int   dofs_per_cell   = rock_fe.dofs_per_cell;
+
+        const unsigned int   n_q_points      = quadrature_formula.size();
+        const unsigned int   n_face_q_points = face_quadrature_formula.size();
+
+        FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
+        Vector<double>       local_rhs (dofs_per_cell);
+
+        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
+
+        std::vector<double> boundary_values (n_face_q_points);
+        const RockRightHandSide<dim>          right_hand_side;
+    	std::vector<Vector<double> >      rhs_values (n_q_points, Vector<double>(dim+1));
+
+        const FEValuesExtractors::Vector velocities (0);
+        const FEValuesExtractors::Scalar pressure (dim);
+
+        std::vector<Tensor<1,dim>>          phi_u       (dofs_per_cell); // why is this a tensor?
+        std::vector<SymmetricTensor<2,dim> > symgrad_phi_u (dofs_per_cell);
+
+        std::vector<Tensor<2,dim> >          grad_phi_u (dofs_per_cell);
+        std::vector<double>                  div_phi_u   (dofs_per_cell);
+        std::vector<double>                  phi_p       (dofs_per_cell);
+
+        typename DoFHandler<dim>::active_cell_iterator
+        cell = rock_dof_handler.begin_active(),
+        endc = rock_dof_handler.end();
+        for (; cell!=endc; ++cell)
+        {
+            rock_fe_values.reinit (cell);
+            local_matrix = 0;
+            local_rhs = 0;
+
+            right_hand_side.vector_value_list(rock_fe_values.get_quadrature_points(),
+                                                 rhs_values);
+
+            for (unsigned int q=0; q<n_q_points; ++q)
+            {
+                for (unsigned int k=0; k<dofs_per_cell; ++k)
+                {
+                    phi_u[k]         = rock_fe_values[velocities].value (k, q);
+                    grad_phi_u[k]    = rock_fe_values[velocities].gradient (k, q);
+                    symgrad_phi_u[k] = rock_fe_values[velocities].symmetric_gradient(k,q);
+                    div_phi_u[k]     = rock_fe_values[velocities].divergence (k, q);
+                    phi_p[k]         = rock_fe_values[pressure].value (k, q);
+                }
+
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
+                {
+                    for (unsigned int j=0; j<dofs_per_cell; ++j)
+                    {
+                        local_matrix(i,j) += (-data::eta* (1.0-data::phi) *2*
+                        								(symgrad_phi_u[i]*symgrad_phi_u[j])
+                        					+ (1.0-data::phi)*div_phi_u[i] * phi_p[j]
+                                              + (1.0-data::phi)*phi_p[i] * div_phi_u[j] )
+											  * rock_fe_values.JxW(q);
+
+                    }
+
+                const unsigned int component_i = rock_fe.system_to_component_index(i).first;
+                local_rhs(i) += rock_fe_values.shape_value(i,q) *
+                					rhs_values[q](component_i) *
+											rock_fe_values.JxW(q);
+
+                }
+              }
+
+              cell->get_dof_indices (local_dof_indices);
+              rock_constraints.distribute_local_to_global (local_matrix, local_rhs,
+                                                      local_dof_indices,
+                                                      rock_system_matrix, rock_system_rhs);
+        }
+
+        std::map<types::global_dof_index, double> boundary_values_flux;
+        {
+                types::global_dof_index n_dofs = rock_dof_handler.n_dofs();
+                std::vector<bool> componentVector(dim + 1, false); // condition is on pressue
+                // setting flux value for the sides at 0 ON THE PRESSURE
+                componentVector[dim] = true;
+
+                std::vector<bool> selected_dofs(n_dofs);
+                std::set< types::boundary_id > boundary_ids;
+                boundary_ids.insert(2);
+
+                DoFTools::extract_boundary_dofs(rock_dof_handler, ComponentMask(componentVector),
+                        selected_dofs, boundary_ids);
+
+                for (types::global_dof_index i = 0; i < n_dofs; i++) {
+                    if (selected_dofs[i]) boundary_values_flux[i] = 00.0;
+                }
+        }
+
+        MatrixTools::apply_boundary_values(boundary_values_flux,
+                rock_system_matrix, rock_solution, rock_system_rhs);
+
+    }
+
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::assemble_pf_system ()
+    void DAE<dim>::assemble_pf_system ()
     {
         QGauss<dim>   quadrature_formula(pf_degree+2);
         QGauss<dim-1> face_quadrature_formula(pf_degree+2);
@@ -826,7 +946,7 @@ namespace System
     }
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::assemble_vf_system ()
+    void DAE<dim>::assemble_vf_system ()
     {
         
         QGauss<dim>   quadrature_formula(vf_degree+2);
@@ -930,7 +1050,7 @@ namespace System
     
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::solve ()
+    void DAE<dim>::solve ()
     {
         std::cout << "   Solving for p_f..." << std::endl;
         SparseDirectUMFPACK  pf_direct;
@@ -950,7 +1070,7 @@ namespace System
     
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::compute_errors () const
+    void DAE<dim>::compute_errors () const
     {
         const ComponentSelectFunction<dim>
         pressure_mask (dim, dim+1);
@@ -995,7 +1115,7 @@ namespace System
     
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::output_results () const
+    void DAE<dim>::output_results () const
     {
         std::vector<std::string> pf_names (dim, "uf");
         pf_names.push_back ("p_f");
@@ -1023,9 +1143,10 @@ namespace System
     
     
     template <int dim>
-    void MixedLaplaceProblem<dim>::run ()
+    void DAE<dim>::run ()
     {
         make_grid_and_dofs();
+        assemble_rock_system ();
 //        assemble_pf_system ();
 //        solve ();
 //        compute_errors ();
@@ -1042,8 +1163,8 @@ int main ()
         using namespace dealii;
         using namespace System;
         
-        MixedLaplaceProblem<data::dimension> mixed_laplace_problem(data::problem_degree);
-        mixed_laplace_problem.run ();
+        DAE<data::dimension> dae_problem(data::problem_degree);
+        dae_problem.run ();
     }
     catch (std::exception &exc)
     {
