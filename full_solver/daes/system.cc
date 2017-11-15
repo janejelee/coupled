@@ -84,6 +84,7 @@ namespace System
         
     private:
         void make_grid_and_dofs ();
+        void assemble_rock_system ();
         void assemble_pf_system ();
         void assemble_vf_system ();
         void solve ();
@@ -91,6 +92,16 @@ namespace System
         void output_results () const;
         Triangulation<dim>   triangulation;
         
+        const unsigned int   pr_degree;
+        FESystem<dim>        rock_fe;
+        DoFHandler<dim>      rock_dof_handler;
+        ConstraintMatrix     rock_constraints;
+
+        BlockSparsityPattern     	rock_sparsity_pattern;
+        BlockSparseMatrix<double> 	rock_system_matrix;
+        BlockVector<double> 		rock_solution;
+        BlockVector<double> 		rock_system_rhs;
+
         const unsigned int   pf_degree;
         FESystem<dim>        pf_fe;
         DoFHandler<dim>      pf_dof_handler;
@@ -115,11 +126,173 @@ namespace System
     };
     
     
+
     template <int dim>
-    class RightHandSide : public Function<dim>
+    class RockBoundaryValuesTop : public Function<dim>
     {
     public:
-        RightHandSide () : Function<dim>(1) {}
+      RockBoundaryValuesTop () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+    template <int dim>
+    double
+    RockBoundaryValuesTop<dim>::value (const Point<dim>  &p,
+                                const unsigned int component) const
+    {
+
+    		if (component == 0) // conditions for top and bottome
+    			return std::sin(p[0]);
+    		else if (component == 1)
+    			return -p[0]*p[1]*p[1];
+    		else if (component == dim)
+        			return p[0]*p[1];
+      return 0.0;
+    }
+
+    template <int dim>
+    void
+    RockBoundaryValuesTop<dim>::vector_value (const Point<dim> &p,
+                                       Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = RockBoundaryValuesTop<dim>::value (p, c);
+    }
+
+
+    template <int dim>
+    class RockBoundaryValuesBottom : public Function<dim>
+    {
+    public:
+      RockBoundaryValuesBottom () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+    template <int dim>
+    double
+    RockBoundaryValuesBottom<dim>::value (const Point<dim>  &p,
+                                const unsigned int component) const
+    {
+
+    		if (component == 0) // conditions for top and bottome
+    			return 0.0;
+    		else if (component == 1)
+    			return 0.0;
+      return 0.0;
+    }
+
+    template <int dim>
+    void
+    RockBoundaryValuesBottom<dim>::vector_value (const Point<dim> &p,
+                                       Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = RockBoundaryValuesBottom<dim>::value (p, c);
+    }
+
+
+    template <int dim>
+    class RockBoundaryValuesSides : public Function<dim>
+    {
+    public:
+      RockBoundaryValuesSides () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+    template <int dim>
+    double
+    RockBoundaryValuesSides<dim>::value (const Point<dim>  &p,
+                                const unsigned int component) const
+    {
+			if (component == 0)
+			return p[1]*std::sin(p[0]);
+			else if (component == 1)
+			return -p[0]*p[1]*p[1];
+    		if (component == dim)
+    			return p[0]*p[1];
+      return 0.0;
+    }
+
+    template <int dim>
+    void
+    RockBoundaryValuesSides<dim>::vector_value (const Point<dim> &p,
+                                       Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = RockBoundaryValuesSides<dim>::value (p, c);
+    }
+
+
+
+
+    template <int dim>
+    class RockRightHandSide : public Function<dim>
+    {
+    public:
+      RockRightHandSide () : Function<dim>(dim+1) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+
+    template <int dim>
+    double
+    RockRightHandSide<dim>::value (const Point<dim>  &p,
+                               const unsigned int component) const
+    {
+
+		if (component == 0)
+			return (1.0-data::phi)*(-2*p[1]*std::sin(p[0]) - 3*p[1]);
+		else if (component == 1)
+			return (1.0-data::phi)*(std::cos(p[0]) - 5*p[0]);
+		else if (component == dim)
+			return (1.0-data::phi)*(p[1]*std::cos(p[0]) - 2*p[0]*p[1]);
+  return 0.0;
+    }
+
+
+    template <int dim>
+    void
+    RockRightHandSide<dim>::vector_value (const Point<dim> &p,
+                                      Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = RockRightHandSide<dim>::value (p, c);
+    }
+
+
+    template <int dim>
+    class RockExactSolution : public Function<dim>
+    {
+    public:
+      RockExactSolution () : Function<dim>(dim+1) {}
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+
+
+    template <int dim>
+    void
+    RockExactSolution<dim>::vector_value (const Point<dim> &p,
+                                      Vector<double>   &values) const
+    {
+      values(0) = p[1]*std::sin(p[0]);
+      values(1) = -p[0]*p[1]*p[1];
+      values(2) = p[0]*p[1];
+    }
+
+    template <int dim>
+    class pfRightHandSide : public Function<dim>
+    {
+    public:
+        pfRightHandSide () : Function<dim>(1) {}
         
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
@@ -157,7 +330,7 @@ namespace System
     };
     
     template <int dim>
-    double RightHandSide<dim>::value (const Point<dim>  &p,
+    double pfRightHandSide<dim>::value (const Point<dim>  &p,
                                       const unsigned int /*component*/) const
     {
         
@@ -302,7 +475,12 @@ namespace System
     template <int dim>
     MixedLaplaceProblem<dim>::MixedLaplaceProblem (const unsigned int degree)
     :
-    pf_degree (degree),
+    pr_degree (degree),
+    rock_fe (FE_Q<dim>(pr_degree+1), dim,
+    FE_Q<dim>(pr_degree), 1),
+    rock_dof_handler (triangulation),
+
+	pf_degree (degree),
     pf_fe (FE_RaviartThomas<dim>(pf_degree), 1,
            FE_Q<dim>(pf_degree), 1),
     pf_dof_handler (triangulation),
@@ -310,6 +488,8 @@ namespace System
     vf_degree (degree),
     vf_fe (FE_Q<dim>(pf_degree+1), dim),
     vf_dof_handler (triangulation)
+
+
     {}
     
     
@@ -346,54 +526,135 @@ namespace System
         
         triangulation.refine_global (data::refinement_level);
         
+        rock_system_matrix.clear ();
+        rock_dof_handler.distribute_dofs (rock_fe);
         pf_dof_handler.distribute_dofs (pf_fe);
         vf_dof_handler.distribute_dofs (vf_fe);
         
-        
+        // rock stuff numbering
+        std::vector<unsigned int> block_component (dim+1,0);
+        block_component[dim] = 1;
+        DoFRenumbering::component_wise (rock_dof_handler, block_component);
+        std::vector<types::global_dof_index> dofs_per_block (2);
+        DoFTools::count_dofs_per_block (rock_dof_handler, dofs_per_block, block_component);
+        const unsigned int n_vr = dofs_per_block[0],
+        					n_pr = dofs_per_block[1];
+
+        // fluid motion numbering
         DoFRenumbering::component_wise (pf_dof_handler);
         std::vector<types::global_dof_index> dofs_per_component (dim+1);
         DoFTools::count_dofs_per_component (pf_dof_handler, dofs_per_component);
         const unsigned int n_u = dofs_per_component[0],
-        n_pf = dofs_per_component[dim], n_vf = vf_dof_handler.n_dofs();
-        
-        
-        std::cout << "Problem Degree: "
-    		  << data::problem_degree
+        					n_pf = dofs_per_component[dim],
+							n_vf = vf_dof_handler.n_dofs();
+
+
+        std::cout << "	Problem Degree: "
+        << data::problem_degree
         << std::endl
-        << "Refinement level: "
+        << "	Refinement level: "
         << data::refinement_level
         << std::endl
-        << "Number of active cells: "
+        << "	Number of active cells: "
         << triangulation.n_active_cells()
         << std::endl
-        << "Total number of cells: "
+        << "	Total number of cells: "
         << triangulation.n_cells()
         << std::endl
-        << "Number of degrees of freedom: "
+        << "	Number of degrees of freedom in rock problem: "
+        << rock_dof_handler.n_dofs()
+        << " (" << n_vr << '+' << n_pr << ')'
+        << std::endl
+        << "	Number of degrees of freedom in fluid problem: "
         << pf_dof_handler.n_dofs()
         << " (" << n_u << '+' << n_pf << '+' << n_vf << ')'
         << std::endl;
         
-        BlockDynamicSparsityPattern dsp(2, 2);
-        dsp.block(0, 0).reinit (n_u, n_u);
-        dsp.block(1, 0).reinit (n_pf, n_u);
-        dsp.block(0, 1).reinit (n_u, n_pf);
-        dsp.block(1, 1).reinit (n_pf, n_pf);
-        dsp.collect_sizes ();
-        DoFTools::make_sparsity_pattern (pf_dof_handler, dsp, pf_constraints, false);
+        {
+            rock_constraints.clear ();
+
+            FEValuesExtractors::Vector velocities(0);
+            FEValuesExtractors::Scalar pressure (dim);
+
+            DoFTools::make_hanging_node_constraints (rock_dof_handler,
+                                                     rock_constraints);
+
+            VectorTools::interpolate_boundary_values (rock_dof_handler,
+                                                      1,
+                                                      RockBoundaryValuesTop<dim>(),
+                                                      rock_constraints,
+                                                      rock_fe.component_mask(velocities));
+
+            VectorTools::interpolate_boundary_values (rock_dof_handler,
+                                                      2,
+                                                      RockBoundaryValuesBottom<dim>(),
+                                                      rock_constraints,
+                                                      rock_fe.component_mask(velocities));
+
+            VectorTools::interpolate_boundary_values (rock_dof_handler,
+                                                      0,
+                                                      RockBoundaryValuesSides<dim>(),
+                                                      rock_constraints,
+                                                      rock_fe.component_mask(velocities));
+
+//
+//            std::set<types::boundary_id> no_normal_flux_boundaries;
+//            no_normal_flux_boundaries.insert (0);
+//            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
+//                                                             no_normal_flux_boundaries,
+//                                                             rock_constraints);
+//
+            rock_constraints.close ();
+        }
+
+
+        		{
+                   BlockDynamicSparsityPattern dsp (2,2);
+
+                   dsp.block(0,0).reinit (n_vr, n_vr);
+                   dsp.block(1,0).reinit (n_pr, n_vr);
+                   dsp.block(0,1).reinit (n_vr, n_pr);
+                   dsp.block(1,1).reinit (n_pr, n_pr);
+
+                   dsp.collect_sizes();
+
+                   DoFTools::make_sparsity_pattern (rock_dof_handler, dsp, rock_constraints, false);
+                   rock_sparsity_pattern.copy_from (dsp);
+               }
+
+                rock_system_matrix.reinit (rock_sparsity_pattern);
+                rock_solution.reinit (2);
+                rock_solution.block(0).reinit (n_vr);
+                rock_solution.block(1).reinit (n_pr);
+                rock_solution.collect_sizes ();
+
+                rock_system_rhs.reinit (2);
+                rock_system_rhs.block(0).reinit (n_vr);
+                rock_system_rhs.block(1).reinit (n_pr);
+                rock_system_rhs.collect_sizes ();
+
+                {
+                	BlockDynamicSparsityPattern dsp(2, 2);
+                	dsp.block(0, 0).reinit (n_u, n_u);
+                	dsp.block(1, 0).reinit (n_pf, n_u);
+                	dsp.block(0, 1).reinit (n_u, n_pf);
+                	dsp.block(1, 1).reinit (n_pf, n_pf);
+                	dsp.collect_sizes ();
+                	DoFTools::make_sparsity_pattern (pf_dof_handler, dsp, pf_constraints, false);
         
-        pf_sparsity_pattern.copy_from(dsp);
-        pf_system_matrix.reinit (pf_sparsity_pattern);
+                	pf_sparsity_pattern.copy_from(dsp);
+                	pf_system_matrix.reinit (pf_sparsity_pattern);
         
-        pf_solution.reinit (2);
-        pf_solution.block(0).reinit (n_u);
-        pf_solution.block(1).reinit (n_pf);
-        pf_solution.collect_sizes ();
+                	pf_solution.reinit (2);
+                	pf_solution.block(0).reinit (n_u);
+                	pf_solution.block(1).reinit (n_pf);
+                	pf_solution.collect_sizes ();
         
-        pf_system_rhs.reinit (2);
-        pf_system_rhs.block(0).reinit (n_u);
-        pf_system_rhs.block(1).reinit (n_pf);
-        pf_system_rhs.collect_sizes ();
+                	pf_system_rhs.reinit (2);
+                	pf_system_rhs.block(0).reinit (n_u);
+                	pf_system_rhs.block(1).reinit (n_pf);
+                	pf_system_rhs.collect_sizes ();
+                }
         
         {
             vf_system_matrix.clear ();
@@ -446,7 +707,7 @@ namespace System
         
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
-        const RightHandSide<dim>          right_hand_side;
+        const pfRightHandSide<dim>          right_hand_side;
         const PressureBoundaryValues<dim> pressure_boundary_values;
         const KInverse<dim>               k_inverse;
         const K<dim>               		  k;
@@ -765,10 +1026,10 @@ namespace System
     void MixedLaplaceProblem<dim>::run ()
     {
         make_grid_and_dofs();
-        assemble_pf_system ();
-        solve ();
-        compute_errors ();
-        output_results ();
+//        assemble_pf_system ();
+//        solve ();
+//        compute_errors ();
+//        output_results ();
         
     }
 }
