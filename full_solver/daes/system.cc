@@ -58,10 +58,10 @@ namespace System
     namespace data
     {
         const int problem_degree = 1;
-        const int refinement_level = 4;
+        const int refinement_level = 3;
         const int dimension = 2;
         
-        const double rho_f = 2.5;
+        const double rho_f = 1.0;
         const double eta = 1.0;
         
         const double top = 1.0;
@@ -69,9 +69,9 @@ namespace System
         const double left = 0.0;
         const double right = PI;
         
-        const double lambda = 0.7;
-        const double perm_const = 0.3;
-        const double phi = 0.7;
+        const double lambda = 1.0;
+        const double perm_const = 1.0;
+        const double phi = 1.0;
         
     }
     
@@ -162,7 +162,6 @@ namespace System
     {
         
         const double permeability = data::perm_const;
-    		  //(0.5*std::sin(3*p[0])+1)* std::exp( -100.0*(p[1]-0.5)*(p[1]-0.5) );
         
         
         return 2.0* data::lambda * permeability * data::rho_f*p[1];
@@ -173,7 +172,7 @@ namespace System
                                                const unsigned int /*component*/) const
     {
         // This is the dirichlet condition for the top
-        return -2./3*data::rho_f;
+        return -2./3*data::rho_f + p[0]*0.0; // last term added to avoid warnings on work comp
     }
     
     template <int dim>
@@ -225,8 +224,8 @@ namespace System
     ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
                                          Vector<double>   &values) const
     {
-        values(0) = 0.0;
-        values(1) = -data::rho_f*(1.0-p[1]*p[1]);
+        values(0) = 0.5*(p[0]*p[0]+p[1]*p[1]);
+        values(1) = /*(1.0-1.0/data::phi)**/data::lambda*data::perm_const*data::rho_f*p[1]*p[1] - p[0]*p[1];
         
     }
     
@@ -557,10 +556,8 @@ namespace System
             }
             
         }
-        
-        
+
         // Apply the conditions
-        
         MatrixTools::apply_boundary_values(boundary_values_flux,
                                            pf_system_matrix, pf_solution, pf_system_rhs);
         
@@ -621,15 +618,15 @@ namespace System
                      component_i = vf_fe.system_to_component_index(i).first;
                      
                      for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-                         local_rhs(i) +=    (-0.0*vf_fe_values.shape_value(i,q_point) *
-                                             data::lambda*data::perm_const*(1.0/data::phi)* data::rho_f*
+                         local_rhs(i) +=    (-vf_fe_values.shape_value(i,q_point) *
+                                             data::lambda*data::perm_const*/*(1.0/data::phi)**/ data::rho_f*
                                              unitz_values[q_point][component_i] +
-                                             0.0* vf_fe_values.shape_value(i,q_point) *
+                                             vf_fe_values.shape_value(i,q_point) *
                                              rock_vel_values[q_point][component_i]  // rock velocity added
                                              - vf_fe_values.shape_value(i,q_point) *
-                                             /*data::lambda*data::perm_const*(1.0/data::phi)* */ -grad_pf_values[q_point][component_i] // minus pressure gradient
+                                             data::lambda*data::perm_const*/*(1.0/data::phi)**/ grad_pf_values[q_point][component_i] // minus pressure gradient
                                              ) *
-                         vf_fe_values.JxW(q_point);
+											 	 	 vf_fe_values.JxW(q_point);
                      
                  }
                  
@@ -650,20 +647,20 @@ namespace System
         {
             types::global_dof_index n_dofs = vf_dof_handler.n_dofs();
             std::vector<bool> componentVector(dim, true);
-            //                        componentVector[0] = false;
+                                  componentVector[0] = false;
             std::vector<bool> selected_dofs(n_dofs);
             std::set< types::boundary_id > boundary_ids;
-            boundary_ids.insert(1);
-            
+            boundary_ids.insert(2);
+
             DoFTools::extract_boundary_dofs(vf_dof_handler, ComponentMask(componentVector),
                                             selected_dofs, boundary_ids);
-            
+
             for (types::global_dof_index i = 0; i < n_dofs; i++) {
                 if (selected_dofs[i]) vf_boundary[i] = 00.0;
             }
-            
+
         }
-        
+
         
         vf_system_matrix.copy_from(vf_mass_matrix);
         MatrixTools::apply_boundary_values(vf_boundary,
