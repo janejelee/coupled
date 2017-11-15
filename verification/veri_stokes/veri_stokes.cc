@@ -4,7 +4,7 @@
  *
  * This file is part of the deal.II library.
  *
- * The deacd .l.II library is free software; you can use it, redistribute
+ * The deal.II library is free software; you can use it, redistribute
  * it, and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
@@ -77,11 +77,7 @@ namespace Step22
         
         const int dimension = 2;
         const int degree = 1;
-<<<<<<< HEAD
-        const int refinement_level = 3;
-=======
         const int refinement_level = 4;
->>>>>>> edd74abe659340a2e3aaa078d7185bdbbe918570
         
     }
     
@@ -141,7 +137,7 @@ namespace Step22
     		if (component == 0) // conditions for top and bottome
     			return 0.0;
     		else if (component == 1)
-    			return 0.5*p[1]*p[1]+2.0;
+    			return -1.0/PI * std::cos(p[0]);
       return 0.0;
     }
     
@@ -174,7 +170,7 @@ namespace Step22
     		if (component == 0) // conditions for top and bottome
     			return 0.0;
     		else if (component == 1)
-    			return 0.5*p[1]*p[1]+2.0;
+    			return 1.0/PI * std::cos(p[0]);
       return 0.0;
     }
     
@@ -200,7 +196,7 @@ namespace Step22
       virtual void vector_value (const Point<dim> &p,
                                  Vector<double>   &value) const;
     };
-    
+   
     template <int dim>
     double
     RightHandSide<dim>::value (const Point<dim>  &p,
@@ -208,11 +204,11 @@ namespace Step22
     {
     	
 		if (component == 0)
-			return 0.0;
+			return -(PI*PI+1) * std::sin(PI*p[1])*std::sin(p[0]) - p[1];
 		else if (component == 1)
-			return -2*p[1];
+			return -(PI*PI+1)/PI * std::cos(PI*p[1])*std::cos(p[0]) -  p[0];
 		else if (component == dim)
-			return p[1];
+			return 0.0;
   return 0.0;
     }
     
@@ -243,8 +239,8 @@ namespace Step22
                                       Vector<double>   &values) const
     {
       values(0) = std::sin(PI*p[1]) * std::sin(p[0]);
-      values(1) = 1./PI * std::cos(PI*p[1]) * std::cos(p[0]);
-      values(2) = p[1]*p[1]+2.0*p[1];
+      values(1) = 1.0/PI * std::cos(PI*p[1]) * std::cos(p[0]);
+      values(2) = p[0]*p[1];
     }
 
     template <int dim>
@@ -277,24 +273,6 @@ namespace Step22
                                                    subdivisions,
                                                    bottom_left,
                                                    top_right);
-<<<<<<< HEAD
-        
-        
-        for (typename Triangulation<dim>::active_cell_iterator
-             cell = triangulation.begin_active();
-             cell != triangulation.end(); ++cell)
-            for (unsigned int f=0; f<GeometryInfo<dim>::faces_per_cell; ++f)
-                if (cell->face(f)->center()[dim-1] == data::top)
-                    cell->face(f)->set_all_boundary_ids(1);
-                else if (cell->face(f)->center()[dim-1] == data::bottom)
-                    cell->face(f)->set_all_boundary_ids(2);
-        
-        
-        
-        
-        triangulation.refine_global (data::refinement_level);
-        
-=======
     
     
     for (typename Triangulation<dim>::active_cell_iterator
@@ -311,7 +289,6 @@ namespace Step22
     
     triangulation.refine_global (data::refinement_level);
     
->>>>>>> edd74abe659340a2e3aaa078d7185bdbbe918570
         system_matrix.clear ();
         
         dof_handler.distribute_dofs (fe);
@@ -622,16 +599,9 @@ namespace Step22
     void StokesProblem<dim>::run ()
     {
     	
-<<<<<<< HEAD
 
             setup_dofs ();
-        
-        std::cout << "   Problem degree: " << data::degree << std::endl << std::flush;
-        std::cout << "   Refinement level: " << data::refinement_level << std::endl << std::flush;
-=======
->>>>>>> edd74abe659340a2e3aaa078d7185bdbbe918570
-
-        
+            
             std::cout << "   Assembling..." << std::endl << std::flush;
             assemble_system ();
             std::cout << "   Problem Degree = " << data::degree << ". " << std::endl;
