@@ -531,7 +531,7 @@ namespace System
                                         const unsigned int /*component*/) const
     {
 
-        return p[0]*std::exp(-p[1]);
+        return 0.7;//p[0]*std::exp(-p[1]);
     }
 
 
@@ -806,12 +806,6 @@ namespace System
     template <int dim>
     void DAE<dim>::assemble_rock_system ()
     {
-    	  ///// BCS
-
-
-
-
-    	    	///////////////
 
     	    	rock_system_matrix=0;
     	        rock_system_rhs=0;
@@ -831,6 +825,12 @@ namespace System
     	                                          update_quadrature_points |
     	                                          update_JxW_values
     	                                          );
+    	        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
+    	                                 update_values    |
+    	                                 update_quadrature_points  |
+    	                                 update_JxW_values |
+    	                                 update_gradients);
+
 
     	        const unsigned int   dofs_per_cell   = rock_fe.dofs_per_cell;
 
@@ -844,7 +844,8 @@ namespace System
 
     	        std::vector<double> boundary_values (n_face_q_points);
     	        const RockRightHandSide<dim>          right_hand_side;
-    	    	std::vector<Vector<double> >      rhs_values (n_q_points, Vector<double>(dim+1));
+    	    	std::vector<Vector<double> >     	  rhs_values (n_q_points, Vector<double>(dim+1));
+    	    	std::vector<double>					  phi_values (n_q_points);
 
 
     	        const FEValuesExtractors::Vector velocities (0);
@@ -860,14 +861,20 @@ namespace System
     	        typename DoFHandler<dim>::active_cell_iterator
     	        cell = rock_dof_handler.begin_active(),
     	        endc = rock_dof_handler.end();
-    	        for (; cell!=endc; ++cell)
+    	        typename DoFHandler<dim>::active_cell_iterator
+    	        phi_cell = phi_dof_handler.begin_active();
+    	        for (; cell!=endc; ++cell, ++phi_cell)
     	        {
     	            rock_fe_values.reinit (cell);
+    	            phi_fe_values.reinit (phi_cell);
     	            local_matrix = 0;
     	            local_rhs = 0;
 
     	            right_hand_side.vector_value_list(rock_fe_values.get_quadrature_points(),
     	                                                 rhs_values);
+
+    	            phi_fe_values.get_function_values (phi_solution, phi_values);
+
 
     	            for (unsigned int q=0; q<n_q_points; ++q)
     	            {
@@ -884,10 +891,10 @@ namespace System
     	                {
     	                    for (unsigned int j=0; j<dofs_per_cell; ++j)
     	                    {
-    	                        local_matrix(i,j) += (-data::eta* (1.0-data::phi) *2*
+    	                        local_matrix(i,j) += (-data::eta* (1.0-phi_values[q]) *2*
     	                        								(symgrad_phi_u[i]*symgrad_phi_u[j])
-    	                        					+ (1.0-data::phi)*div_phi_u[i] * phi_p[j]
-    	                                              + (1.0-data::phi)*phi_p[i] * div_phi_u[j] )
+    	                        					+ (1.0-phi_values[q])*div_phi_u[i] * phi_p[j]
+    	                                              + (1.0-phi_values[q])*phi_p[i] * div_phi_u[j] )
     												  * rock_fe_values.JxW(q);
 
     	                    }
@@ -1240,120 +1247,120 @@ namespace System
     void
     DAE<dim>::assemble_phi_system ()
     {
-        phi_system_matrix = 0;
-        phi_nontime_matrix = 0;
-
-        MatrixCreator::create_mass_matrix(phi_dof_handler,
-                                          QGauss<dim>(data::degree+4),
-                                          phi_mass_matrix);
-
-        FullMatrix<double>                   cell_matrix;
-
-        std::vector<types::global_dof_index> local_dof_indices;
-
-        QGauss<dim>  quadrature_formula(data::degree+3);
-        QGauss<dim-1> face_quadrature_formula(data::degree+3);
-
-
-        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
-                                 update_values    |  update_gradients |
-                                 update_quadrature_points  |  update_JxW_values);
-        FEFaceValues<dim> phi_fe_face_values (phi_fe, face_quadrature_formula,
-                                          update_values | update_quadrature_points |
-                                          update_JxW_values | update_normal_vectors);
-        FEValues<dim> vr_fe_values (rock_fe, quadrature_formula,
-                                 update_values    |  update_gradients |
-                                 update_quadrature_points  |  update_JxW_values);
-        FEFaceValues<dim> vr_fe_face_values (rock_fe, face_quadrature_formula,
-                                                  update_values | update_quadrature_points |
-                                                  update_JxW_values | update_normal_vectors);
-
-
-//        const AdvectionField<dim> advection_field;
-
-        const unsigned int dofs_per_cell   = phi_fe.dofs_per_cell;
-        const unsigned int n_q_points      = phi_fe_values.get_quadrature().size();
-        const unsigned int n_face_q_points = phi_fe_face_values.get_quadrature().size();
-
-
-        cell_matrix.reinit (dofs_per_cell, dofs_per_cell);
-        local_dof_indices.resize(dofs_per_cell);
+//        phi_system_matrix = 0;
+//        phi_nontime_matrix = 0;
 //
-//        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
-//        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
-
-	       std::vector<Tensor<1,dim>> 	  vr_values (n_q_points);
-	       std::vector<Tensor<1,dim>> 	  vr_face_values (n_face_q_points);
-
-	       const FEValuesExtractors::Vector velocities (0);
-	       const FEValuesExtractors::Scalar pressure (dim);
-
-
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = phi_dof_handler.begin_active(),
-        endc = phi_dof_handler.end();
-        typename DoFHandler<dim>::active_cell_iterator
-        vr_cell = rock_dof_handler.begin_active();
-        for (; cell!=endc; ++cell, ++vr_cell)
-        {
-            cell_matrix = 0;
-
-            phi_fe_values.reinit (cell);
-            vr_fe_values.reinit(vr_cell);
-//            advection_field.value_list (phi_fe_values.get_quadrature_points(),
-//                                        advection_directions);
-            vr_fe_values[velocities].get_function_values (rock_solution, vr_values);
-
-            const double delta = 0.1 * cell->diameter ();
-            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-                for (unsigned int i=0; i<dofs_per_cell; ++i)
-                {
-                    for (unsigned int j=0; j<dofs_per_cell; ++j)
-                        cell_matrix(i,j) += ((vr_values[q_point] *
-                                              phi_fe_values.shape_grad(j,q_point)   *
-                                              (phi_fe_values.shape_value(i,q_point) +
-                                               delta *
-                                               (vr_values[q_point] *
-                                                phi_fe_values.shape_grad(i,q_point)))) *
-                                             phi_fe_values.JxW(q_point));
-                }
-
-            for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
-                if (cell->face(face)->at_boundary())
-                {
-                    phi_fe_face_values.reinit (cell, face);
-//                    advection_field.value_list (phi_fe_face_values.get_quadrature_points(),
-//                                                face_advection_directions);
-
-                    vr_fe_face_values[velocities].get_function_values (rock_solution, vr_face_values);
-
-                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                        if (phi_fe_face_values.normal_vector(q_point) *
-                            vr_face_values[q_point]
-                            < 0)
-                            for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            {
-                                for (unsigned int j=0; j<dofs_per_cell; ++j)
-                                    cell_matrix(i,j) -= (vr_face_values[q_point] *
-                                                         phi_fe_face_values.normal_vector(q_point) *
-                                                         phi_fe_face_values.shape_value(i,q_point) *
-                                                         phi_fe_face_values.shape_value(j,q_point) *
-                                                         phi_fe_face_values.JxW(q_point));
-
-                            }
-                }
-
-            cell->get_dof_indices (local_dof_indices);
-
-
-            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
-            {
-                for (unsigned int j=0; j<local_dof_indices.size(); ++j)
-                    phi_nontime_matrix.add (local_dof_indices[i],
-                                        local_dof_indices[j],
-                                        cell_matrix(i,j));
-            }
-        }
+//        MatrixCreator::create_mass_matrix(phi_dof_handler,
+//                                          QGauss<dim>(data::problem_degree+4),
+//                                          phi_mass_matrix);
+//
+//        FullMatrix<double>                   cell_matrix;
+//
+//        std::vector<types::global_dof_index> local_dof_indices;
+//
+//        QGauss<dim>  quadrature_formula(data::problem_degree+3);
+//        QGauss<dim-1> face_quadrature_formula(data::problem_degree+3);
+//
+//
+//        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
+//                                 update_values    |  update_gradients |
+//                                 update_quadrature_points  |  update_JxW_values);
+//        FEFaceValues<dim> phi_fe_face_values (phi_fe, face_quadrature_formula,
+//                                          update_values | update_quadrature_points |
+//                                          update_JxW_values | update_normal_vectors);
+//        FEValues<dim> vr_fe_values (rock_fe, quadrature_formula,
+//                                 update_values    |  update_gradients |
+//                                 update_quadrature_points  |  update_JxW_values);
+//        FEFaceValues<dim> vr_fe_face_values (rock_fe, face_quadrature_formula,
+//                                                  update_values | update_quadrature_points |
+//                                                  update_JxW_values | update_normal_vectors);
+//
+//
+////        const AdvectionField<dim> advection_field;
+//
+//        const unsigned int dofs_per_cell   = phi_fe.dofs_per_cell;
+//        const unsigned int n_q_points      = phi_fe_values.get_quadrature().size();
+//        const unsigned int n_face_q_points = phi_fe_face_values.get_quadrature().size();
+//
+//
+//        cell_matrix.reinit (dofs_per_cell, dofs_per_cell);
+//        local_dof_indices.resize(dofs_per_cell);
+////
+////        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
+////        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
+//
+//	       std::vector<Tensor<1,dim>> 	  vr_values (n_q_points);
+//	       std::vector<Tensor<1,dim>> 	  vr_face_values (n_face_q_points);
+//
+//	       const FEValuesExtractors::Vector velocities (0);
+//	       const FEValuesExtractors::Scalar pressure (dim);
+//
+//
+//        typename DoFHandler<dim>::active_cell_iterator
+//        cell = phi_dof_handler.begin_active(),
+//        endc = phi_dof_handler.end();
+//        typename DoFHandler<dim>::active_cell_iterator
+//        vr_cell = rock_dof_handler.begin_active();
+//        for (; cell!=endc; ++cell, ++vr_cell)
+//        {
+//            cell_matrix = 0;
+//
+//            phi_fe_values.reinit (cell);
+//            vr_fe_values.reinit(vr_cell);
+////            advection_field.value_list (phi_fe_values.get_quadrature_points(),
+////                                        advection_directions);
+//            vr_fe_values[velocities].get_function_values (rock_solution, vr_values);
+//
+//            const double delta = 0.1 * cell->diameter ();
+//            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+//                for (unsigned int i=0; i<dofs_per_cell; ++i)
+//                {
+//                    for (unsigned int j=0; j<dofs_per_cell; ++j)
+//                        cell_matrix(i,j) += ((vr_values[q_point] *
+//                                              phi_fe_values.shape_grad(j,q_point)   *
+//                                              (phi_fe_values.shape_value(i,q_point) +
+//                                               delta *
+//                                               (vr_values[q_point] *
+//                                                phi_fe_values.shape_grad(i,q_point)))) *
+//                                             phi_fe_values.JxW(q_point));
+//                }
+//
+//            for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
+//                if (cell->face(face)->at_boundary())
+//                {
+//                    phi_fe_face_values.reinit (cell, face);
+////                    advection_field.value_list (phi_fe_face_values.get_quadrature_points(),
+////                                                face_advection_directions);
+//
+//                    vr_fe_face_values[velocities].get_function_values (rock_solution, vr_face_values);
+//
+//                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+//                        if (phi_fe_face_values.normal_vector(q_point) *
+//                            vr_face_values[q_point]
+//                            < 0)
+//                            for (unsigned int i=0; i<dofs_per_cell; ++i)
+//                            {
+//                                for (unsigned int j=0; j<dofs_per_cell; ++j)
+//                                    cell_matrix(i,j) -= (vr_face_values[q_point] *
+//                                                         phi_fe_face_values.normal_vector(q_point) *
+//                                                         phi_fe_face_values.shape_value(i,q_point) *
+//                                                         phi_fe_face_values.shape_value(j,q_point) *
+//                                                         phi_fe_face_values.JxW(q_point));
+//
+//                            }
+//                }
+//
+//            cell->get_dof_indices (local_dof_indices);
+//
+//
+//            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
+//            {
+//                for (unsigned int j=0; j<local_dof_indices.size(); ++j)
+//                    phi_nontime_matrix.add (local_dof_indices[i],
+//                                        local_dof_indices[j],
+//                                        cell_matrix(i,j));
+//            }
+//        }
 
 
     }
@@ -1363,106 +1370,106 @@ namespace System
     void
     DAE<dim>::assemble_phi_rhs ()
     {
-        phi_system_rhs=0;
-        phi_nontime_rhs=0;
-
-        Vector<double>                       cell_rhs;
-        std::vector<types::global_dof_index> local_dof_indices;
-
-        QGauss<dim>  quadrature_formula(data::degree+4);
-        QGauss<dim-1> face_quadrature_formula(data::degree+4);
-
-
-        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
-                                 update_values    |  update_gradients |
-                                 update_quadrature_points  |  update_JxW_values);
-        FEFaceValues<dim> phi_fe_face_values (phi_fe, face_quadrature_formula,
-                                          update_values | update_quadrature_points |
-                                          update_JxW_values | update_normal_vectors);
-        FEValues<dim> vr_fe_values (rock_fe, quadrature_formula,
-                                 update_values    |  update_gradients |
-                                 update_quadrature_points  |  update_JxW_values);
-        FEFaceValues<dim> vr_fe_face_values (rock_fe, face_quadrature_formula,
-                                                  update_values | update_quadrature_points |
-                                                  update_JxW_values | update_normal_vectors);
-
-
-//        const AdvectionField<dim> advection_field;
-        const RightHandSide<dim>  right_hand_side;
-        PhiBoundaryValues<dim> phi_boundary_values;
-        phi_boundary_values.set_time(time);
-
-        const unsigned int dofs_per_cell   = phi_fe.dofs_per_cell;
-        const unsigned int n_q_points      = phi_fe_values.get_quadrature().size();
-        const unsigned int n_face_q_points = phi_fe_face_values.get_quadrature().size();
-
-
-        cell_rhs.reinit (dofs_per_cell);
-        local_dof_indices.resize(dofs_per_cell);
-
-
-        std::vector<double>         rhs_values (n_q_points);
-        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
-        std::vector<double>         face_phi_boundary_values (n_face_q_points);
-        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
-
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = phi_dof_handler.begin_active(),
-        endc = phi_dof_handler.end();
-        for (; cell!=endc; ++cell)
-        {
-            cell_rhs = 0;
-
-            phi_fe_values.reinit (cell);
-            advection_field.value_list (phi_fe_values.get_quadrature_points(),
-                                        advection_directions);
-            right_hand_side.value_list (phi_fe_values.get_quadrature_points(),
-                                        rhs_values);
-
-
-            const double delta = 0.1 * cell->diameter ();
-            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-                for (unsigned int i=0; i<dofs_per_cell; ++i)
-                {
-                    cell_rhs(i) += ((phi_fe_values.shape_value(i,q_point) +
-                                     delta *
-                                     (advection_directions[q_point] *
-                                      phi_fe_values.shape_grad(i,q_point))        ) *
-                                    rhs_values[q_point] *
-                                    phi_fe_values.JxW (q_point));
-                }
-
-            for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
-                if (cell->face(face)->at_boundary())
-                {
-                    phi_fe_face_values.reinit (cell, face);
-                    phi_boundary_values.value_list (phi_fe_face_values.get_quadrature_points(),
-                                                face_phi_boundary_values);
-                    advection_field.value_list (phi_fe_face_values.get_quadrature_points(),
-                                                face_advection_directions);
-                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                        if (phi_fe_face_values.normal_vector(q_point) *
-                            face_advection_directions[q_point]
-                            < 0)
-                            for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            {
-                                cell_rhs(i) -= (face_advection_directions[q_point] *
-                                                phi_fe_face_values.normal_vector(q_point) *
-                                                face_phi_boundary_values[q_point]         *
-                                                phi_fe_face_values.shape_value(i,q_point) *
-                                                phi_fe_face_values.JxW(q_point));
-
-                            }
-                }
-
-            cell->get_dof_indices (local_dof_indices);
-
-
-            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
-            {
-                phi_nontime_rhs(local_dof_indices[i]) += cell_rhs(i);
-            }
-        }
+//        phi_system_rhs=0;
+//        phi_nontime_rhs=0;
+//
+//        Vector<double>                       cell_rhs;
+//        std::vector<types::global_dof_index> local_dof_indices;
+//
+//        QGauss<dim>  quadrature_formula(data::problem_degree+4);
+//        QGauss<dim-1> face_quadrature_formula(data::problem_degree+4);
+//
+//
+//        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
+//                                 update_values    |  update_gradients |
+//                                 update_quadrature_points  |  update_JxW_values);
+//        FEFaceValues<dim> phi_fe_face_values (phi_fe, face_quadrature_formula,
+//                                          update_values | update_quadrature_points |
+//                                          update_JxW_values | update_normal_vectors);
+//        FEValues<dim> vr_fe_values (rock_fe, quadrature_formula,
+//                                 update_values    |  update_gradients |
+//                                 update_quadrature_points  |  update_JxW_values);
+//        FEFaceValues<dim> vr_fe_face_values (rock_fe, face_quadrature_formula,
+//                                                  update_values | update_quadrature_points |
+//                                                  update_JxW_values | update_normal_vectors);
+//
+//
+////        const AdvectionField<dim> advection_field;
+//        const RightHandSide<dim>  right_hand_side;
+//        PhiBoundaryValues<dim> phi_boundary_values;
+//        phi_boundary_values.set_time(time);
+//
+//        const unsigned int dofs_per_cell   = phi_fe.dofs_per_cell;
+//        const unsigned int n_q_points      = phi_fe_values.get_quadrature().size();
+//        const unsigned int n_face_q_points = phi_fe_face_values.get_quadrature().size();
+//
+//
+//        cell_rhs.reinit (dofs_per_cell);
+//        local_dof_indices.resize(dofs_per_cell);
+//
+//
+//        std::vector<double>         rhs_values (n_q_points);
+//        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
+//        std::vector<double>         face_phi_boundary_values (n_face_q_points);
+//        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
+//
+//        typename DoFHandler<dim>::active_cell_iterator
+//        cell = phi_dof_handler.begin_active(),
+//        endc = phi_dof_handler.end();
+//        for (; cell!=endc; ++cell)
+//        {
+//            cell_rhs = 0;
+//
+//            phi_fe_values.reinit (cell);
+//            advection_field.value_list (phi_fe_values.get_quadrature_points(),
+//                                        advection_directions);
+//            right_hand_side.value_list (phi_fe_values.get_quadrature_points(),
+//                                        rhs_values);
+//
+//
+//            const double delta = 0.1 * cell->diameter ();
+//            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+//                for (unsigned int i=0; i<dofs_per_cell; ++i)
+//                {
+//                    cell_rhs(i) += ((phi_fe_values.shape_value(i,q_point) +
+//                                     delta *
+//                                     (advection_directions[q_point] *
+//                                      phi_fe_values.shape_grad(i,q_point))        ) *
+//                                    rhs_values[q_point] *
+//                                    phi_fe_values.JxW (q_point));
+//                }
+//
+//            for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
+//                if (cell->face(face)->at_boundary())
+//                {
+//                    phi_fe_face_values.reinit (cell, face);
+//                    phi_boundary_values.value_list (phi_fe_face_values.get_quadrature_points(),
+//                                                face_phi_boundary_values);
+//                    advection_field.value_list (phi_fe_face_values.get_quadrature_points(),
+//                                                face_advection_directions);
+//                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+//                        if (phi_fe_face_values.normal_vector(q_point) *
+//                            face_advection_directions[q_point]
+//                            < 0)
+//                            for (unsigned int i=0; i<dofs_per_cell; ++i)
+//                            {
+//                                cell_rhs(i) -= (face_advection_directions[q_point] *
+//                                                phi_fe_face_values.normal_vector(q_point) *
+//                                                face_phi_boundary_values[q_point]         *
+//                                                phi_fe_face_values.shape_value(i,q_point) *
+//                                                phi_fe_face_values.JxW(q_point));
+//
+//                            }
+//                }
+//
+//            cell->get_dof_indices (local_dof_indices);
+//
+//
+//            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
+//            {
+//                phi_nontime_rhs(local_dof_indices[i]) += cell_rhs(i);
+//            }
+//        }
     }
 
 
@@ -1640,48 +1647,48 @@ namespace System
 
         assemble_rock_system (); // need old_phi_solution here
         solve_rock_system ();
-        assemble_pf_system ();
-        solve_fluid_system ();
-        // At this point, we have values for pr vr pf vf to use in the assembling of phi system
-
-        assemble_phi_system ();
-
-        output_phi_results();
-
-
-        time_step = data::timestep;
-
-        while (time <= data::final_time)
-                {
-                    time += time_step;
-                    ++timestep_number;
-
-
-                    assemble_phi_rhs ();
-
-                    phi_mass_matrix.vmult(phi_system_rhs, old_phi_solution);
-                    phi_system_rhs.add(time_step,phi_nontime_rhs);
-
-                    phi_system_matrix.copy_from(phi_mass_matrix);
-                    phi_system_matrix.add(time_step,phi_nontime_matrix);
-
-                    phi_hanging_node_constraints.condense (phi_system_rhs);
-                    phi_hanging_node_constraints.condense (phi_system_matrix);
-
-
-                    solve_phi ();
-                    output_phi_results ();
-                    // error_analysis();
-                    old_phi_solution = phi_solution;
-
-                    assemble_rock_system (); // need old_phi_solution here
-                    solve_rock_system ();
-                    assemble_pf_system ();
-                    solve_fluid_system ();
-
-
-
-                }
+//        assemble_pf_system ();
+//        solve_fluid_system ();
+//        // At this point, we have values for pr vr pf vf to use in the assembling of phi system
+//
+//        assemble_phi_system ();
+//
+//        output_phi_results();
+//
+//
+//        time_step = data::timestep;
+//
+//        while (time <= data::final_time)
+//                {
+//                    time += time_step;
+//                    ++timestep_number;
+//
+//
+//                    assemble_phi_rhs ();
+//
+//                    phi_mass_matrix.vmult(phi_system_rhs, old_phi_solution);
+//                    phi_system_rhs.add(time_step,phi_nontime_rhs);
+//
+//                    phi_system_matrix.copy_from(phi_mass_matrix);
+//                    phi_system_matrix.add(time_step,phi_nontime_matrix);
+//
+//                    phi_hanging_node_constraints.condense (phi_system_rhs);
+//                    phi_hanging_node_constraints.condense (phi_system_matrix);
+//
+//
+//                    solve_phi ();
+//                    output_phi_results ();
+//                    // error_analysis();
+//                    old_phi_solution = phi_solution;
+//
+//                    assemble_rock_system (); // need old_phi_solution here
+//                    solve_rock_system ();
+//                    assemble_pf_system ();
+//                    solve_fluid_system ();
+//
+//
+//
+//                }
 
         compute_errors ();
         output_results ();
