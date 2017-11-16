@@ -140,6 +140,7 @@ namespace System
         BlockSparsityPattern      pf_sparsity_pattern;
         BlockSparseMatrix<double> pf_system_matrix;
         BlockVector<double>       pf_solution;
+        BlockVector<double>       pf_initial_solution;
         BlockVector<double>       pf_system_rhs;
         
         const unsigned int 	vf_degree;
@@ -151,6 +152,7 @@ namespace System
         SparseMatrix<double> vf_system_matrix;
         SparseMatrix<double> vf_mass_matrix;
         Vector<double>       vf_solution;
+        Vector<double>       vf_initial_solution;
         Vector<double>       vf_system_rhs;
         
         DoFHandler<dim>      phi_dof_handler;
@@ -405,6 +407,7 @@ namespace System
         values(1) = data::lambda*data::rho_f*(1-p[1]*p[1])*permeability;
         values(2) = -data::rho_f*(p[1] - (1.0/3.0)*p[1]*p[1]*p[1]);
     }
+
     template <int dim>
     void
     ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
@@ -532,8 +535,69 @@ namespace System
                                         const unsigned int /*component*/) const
     {
 
-        return 0.7;//p[0]*std::exp(-p[1]);
+        return 0.7 + p[0]*0.0;
     }
+
+    template <int dim>
+    class pfInitialFunction  : public Function<dim>
+    {
+    public:
+    	pfInitialFunction  () : Function<dim>(dim+1) {}
+
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
+    };
+
+    template <int dim>
+        void
+		pfInitialFunction<dim>::vector_value (const Point<dim> &p,
+                                             Vector<double>   &values) const
+        {
+            Assert (values.size() == dim+1,
+                    ExcDimensionMismatch (values.size(), dim+1));
+
+            values(0) = 0.0*p[0];
+            values(1) = 0.0;
+            values(2) = 0.0;
+        }
+
+    template <int dim>
+    class vfInitialFunction : public Function<dim>
+    {
+    public:
+    	vfInitialFunction () : Function<dim>(dim) {}
+      virtual double value (const Point<dim>   &p,
+                            const unsigned int  component = 0) const;
+      virtual void vector_value (const Point<dim> &p,
+                                 Vector<double>   &value) const;
+    };
+
+
+    template <int dim>
+    double
+    vfInitialFunction<dim>::value (const Point<dim>  &p,
+                               const unsigned int component) const
+    {
+
+		if (component == 0)
+			return 0.0;
+		else if (component == 1)
+			return 0.0*p[0];
+  return 0.0;
+    }
+
+
+    template <int dim>
+    void
+    vfInitialFunction<dim>::vector_value (const Point<dim> &p,
+                                      Vector<double>   &values) const
+    {
+      for (unsigned int c=0; c<this->n_components; ++c)
+        values(c) = vfInitialFunction<dim>::value (p, c);
+    }
+
+
+
 
 
     template <int dim>
@@ -749,6 +813,11 @@ namespace System
                     	pf_solution.block(1).reinit (n_pf);
                     	pf_solution.collect_sizes ();
 
+                    	pf_initial_solution.reinit (2);
+                    	pf_initial_solution.block(0).reinit (n_u);
+                    	pf_initial_solution.block(1).reinit (n_pf);
+                    	pf_initial_solution.collect_sizes ();
+
                     	pf_system_rhs.reinit (2);
                     	pf_system_rhs.block(0).reinit (n_u);
                     	pf_system_rhs.block(1).reinit (n_pf);
@@ -772,6 +841,7 @@ namespace System
                 vf_mass_matrix.reinit (vf_sparsity_pattern);
                 vf_system_matrix.reinit (vf_sparsity_pattern);
                 vf_solution.reinit (vf_dof_handler.n_dofs());
+                vf_initial_solution.reinit (vf_dof_handler.n_dofs());
                 vf_system_rhs.reinit (vf_dof_handler.n_dofs());
 
 
@@ -1646,16 +1716,16 @@ namespace System
         setup_fluid_dofs ();
         setup_phi_dofs ();
 
-        VectorTools::interpolate(phi_dof_handler,
-                                        PhiInitialFunction<dim>(),
-                                        old_phi_solution);
+        VectorTools::interpolate(phi_dof_handler, PhiInitialFunction<dim>(), old_phi_solution);
+//        VectorTools::interpolate(pf_dof_handler, pfInitialFunction<dim>(), pf_initial_solution);
+        VectorTools::interpolate(vf_dof_handler, vfInitialFunction<dim>(), vf_initial_solution);
 
         phi_solution = old_phi_solution;
 
-        assemble_rock_system (); // need old_phi_solution here
-        solve_rock_system ();
-        assemble_pf_system ();
-        solve_fluid_system ();
+//        assemble_rock_system (); // need old_phi_solution here
+//        solve_rock_system ();
+//        assemble_pf_system ();
+//        solve_fluid_system ();
 //        // At this point, we have values for pr vr pf vf to use in the assembling of phi system
 
         assemble_phi_system ();
