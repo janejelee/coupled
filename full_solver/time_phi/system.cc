@@ -1391,9 +1391,6 @@ namespace System
                                  update_values    |  update_gradients |
                                  update_quadrature_points  |  update_JxW_values);
 
-
-//        const AdvectionField<dim> advection_field;
-//        const RightHandSide<dim>  right_hand_side;
         PhiBoundaryValues<dim> phi_boundary_values;
         phi_boundary_values.set_time(time);
 
@@ -1406,9 +1403,7 @@ namespace System
         local_dof_indices.resize(dofs_per_cell);
 
         std::vector<double>         rhs_values (n_q_points);
-//        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
         std::vector<double>         face_phi_boundary_values (n_face_q_points);
-//        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
 
 	       const FEValuesExtractors::Vector velocities (0);
 	       const FEValuesExtractors::Scalar pressure (dim);
@@ -1427,10 +1422,6 @@ namespace System
         for (; cell!=endc; ++cell, ++vr_cell, ++pf_cell)
         {
             cell_rhs = 0;
-//            advection_field.value_list (phi_fe_values.get_quadrature_points(),
-//                                        advection_directions);
-//            right_hand_side.value_list (phi_fe_values.get_quadrature_points(),
-//                                        rhs_values);
             phi_fe_values.reinit (cell);
             vr_fe_values.reinit (vr_cell);
             pf_fe_values.reinit (pf_cell);
@@ -1461,8 +1452,6 @@ namespace System
                     vr_fe_face_values.reinit (vr_cell, face);
                     phi_boundary_values.value_list (phi_fe_face_values.get_quadrature_points(),
                                                 face_phi_boundary_values);
-//                    advection_field.value_list (phi_fe_face_values.get_quadrature_points(),
-//                                                face_advection_directions);
                     vr_fe_face_values[velocities].get_function_values (rock_solution, vr_face_values);
 
                     for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
