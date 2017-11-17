@@ -87,8 +87,8 @@ namespace System
     const int problem_degree = 1;
     const int refinement_level = 3;
 
-    const double timestep = 1e-7;
-    const double final_time = 11*timestep;
+        const double timestep = 1e-6;
+    const double final_time = 50*timestep;
     const double error_time = 13;
         
     }
@@ -166,6 +166,8 @@ namespace System
         Vector<double>		 old_phi_solution;
         Vector<double>       phi_system_rhs;
         Vector<double>		 phi_nontime_rhs;
+        
+        Vector<double>       phi_pf;
 
         double               time;
         double               time_step;
@@ -539,64 +541,56 @@ namespace System
     }
 
     template <int dim>
-    class pfInitialFunction  : public Function<dim>
-    {
-    public:
-    	pfInitialFunction  () : Function<dim>(dim+1) {}
-
-        virtual void vector_value (const Point<dim> &p,
-                                   Vector<double>   &value) const;
-    };
-
-    template <int dim>
-        void
-		pfInitialFunction<dim>::vector_value (const Point<dim> &p,
-                                             Vector<double>   &values) const
-        {
-            Assert (values.size() == dim+1,
-                    ExcDimensionMismatch (values.size(), dim+1));
-
-            values(0) = 0.0*p[0];
-            values(1) = 0.0;
-            values(2) = 0.0;
-        }
-
-    template <int dim>
     class vfInitialFunction : public Function<dim>
     {
     public:
-    	vfInitialFunction () : Function<dim>(dim) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-      virtual void vector_value (const Point<dim> &p,
-                                 Vector<double>   &value) const;
+        vfInitialFunction () : Function<dim>(dim) {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
     };
-
-
+    
+    
     template <int dim>
     double
     vfInitialFunction<dim>::value (const Point<dim>  &p,
-                               const unsigned int component) const
+                                   const unsigned int component) const
     {
-
-		if (component == 0)
-			return 0.0;
-		else if (component == 1)
-			return 0.0*p[0];
-  return 0.0;
+        
+        if (component == 0)
+            return 0.0;
+        else if (component == 1)
+            return 0.0*p[0];
+        return 0.0;
     }
-
-
+    
+    
     template <int dim>
     void
     vfInitialFunction<dim>::vector_value (const Point<dim> &p,
-                                      Vector<double>   &values) const
+                                          Vector<double>   &values) const
     {
-      for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = vfInitialFunction<dim>::value (p, c);
+        for (unsigned int c=0; c<this->n_components; ++c)
+            values(c) = vfInitialFunction<dim>::value (p, c);
     }
 
-
+    template <int dim>
+    class pfInitialFunction : public Function<dim>
+    {
+    public:
+        pfInitialFunction () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double pfInitialFunction<dim>::value (const Point<dim>  &p,
+                                           const unsigned int /*component*/) const
+    {
+        
+        return 0.0;
+    }
 
 
 
@@ -703,10 +697,6 @@ namespace System
                                                       rock_constraints,
                                                       rock_fe.component_mask(velocities));
 
-
-
-
-//
 //            std::set<types::boundary_id> no_normal_flux_boundaries;
 //            no_normal_flux_boundaries.insert (0);
 //            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
@@ -901,7 +891,6 @@ namespace System
     	                                 update_quadrature_points  |
     	                                 update_JxW_values |
     	                                 update_gradients);
-
 
     	        const unsigned int   dofs_per_cell   = rock_fe.dofs_per_cell;
 
@@ -1303,13 +1292,13 @@ namespace System
     template <int dim>
     void DAE<dim>::solve_fluid_system ()
     {
-        std::cout << "   Solving for p_f..." << std::endl;
+//        std::cout << "   Solving for p_f..." << std::endl;
         SparseDirectUMFPACK  pf_direct;
         pf_direct.initialize(pf_system_matrix);
         pf_direct.vmult (pf_solution, pf_system_rhs);
 
         assemble_vf_system ();
-        std::cout << "   Solving for v_f..." << std::endl;
+//        std::cout << "   Solving for v_f..." << std::endl;
         SparseDirectUMFPACK  vf_direct;
         vf_direct.initialize(vf_system_matrix);
         vf_direct.vmult (vf_solution, vf_system_rhs);
@@ -1651,11 +1640,11 @@ namespace System
                                       data_component_interpretation);
             data_out.build_patches ();
 
-            std::ostringstream filename;
-            filename << "rock_solution"
-            << ".vtk";
+            const std::string filename = "rock_solution-"
+            + Utilities::int_to_string(timestep_number, 3) +
+            ".vtk";
 
-            std::ofstream output (filename.str().c_str());
+            std::ofstream output (filename.c_str());
             data_out.write_vtk (output);
 
     	}
@@ -1675,10 +1664,11 @@ namespace System
         data_out.add_data_vector (vf_dof_handler, vf_solution,
                                   "v_f");
 
-        data_out.build_patches (std::min(pf_degree, vf_degree));
-        std::ostringstream filename;
-        filename << "fluid_solution.vtk";
-        std::ofstream output (filename.str().c_str());
+        data_out.build_patches ();
+            const std::string filename = "fluid_solution-"
+            + Utilities::int_to_string(timestep_number, 3) +
+            ".vtk";
+        std::ofstream output (filename.c_str());
         data_out.write_vtk (output);
     	}
 
@@ -1715,58 +1705,66 @@ namespace System
         setup_rock_dofs ();
         setup_fluid_dofs ();
         setup_phi_dofs ();
-
+        
+	       const FEValuesExtractors::Vector velocities (0);
+	       const FEValuesExtractors::Scalar pressure (dim);
+        
         VectorTools::interpolate(phi_dof_handler, PhiInitialFunction<dim>(), old_phi_solution);
-//        VectorTools::interpolate(pf_dof_handler, pfInitialFunction<dim>(), pf_initial_solution);
         VectorTools::interpolate(vf_dof_handler, vfInitialFunction<dim>(), vf_initial_solution);
 
         phi_solution = old_phi_solution;
 
-//        assemble_rock_system (); // need old_phi_solution here
-//        solve_rock_system ();
-//        assemble_pf_system ();
-//        solve_fluid_system ();
+        assemble_rock_system (); // need old_phi_solution here
+        solve_rock_system ();
+        assemble_pf_system ();
+        solve_fluid_system ();
 //        // At this point, we have values for pr vr pf vf to use in the assembling of phi system
+        
+//        phi_solution.vmult(phi_pf, pf_solution); tried this didn't work.
 
         assemble_phi_system ();
+        
+        output_results ();
         output_phi_results();
-        assemble_phi_rhs (); // added here for verification
+        
         time_step = data::timestep;
 
-//        while (time <= data::final_time)
-//                {
-//                    time += time_step;
-//                    ++timestep_number;
-//
-//
-//                    assemble_phi_rhs ();
-//
-//                    phi_mass_matrix.vmult(phi_system_rhs, old_phi_solution);
-//                    phi_system_rhs.add(time_step,phi_nontime_rhs);
-//
-//                    phi_system_matrix.copy_from(phi_mass_matrix);
-//                    phi_system_matrix.add(time_step,phi_nontime_matrix);
-//
-//                    phi_hanging_node_constraints.condense (phi_system_rhs);
-//                    phi_hanging_node_constraints.condense (phi_system_matrix);
-//
-//
-//                    solve_phi ();
-//                    output_phi_results ();
-//                    // error_analysis();
-//                    old_phi_solution = phi_solution;
-//
-//                    assemble_rock_system (); // need old_phi_solution here
-//                    solve_rock_system ();
-//                    assemble_pf_system ();
-//                    solve_fluid_system ();
-//
-//
-//
-//                }
+        while (time <= data::final_time)
+                {
+                    time += time_step;
+                    ++timestep_number;
+                    std::cout << "   Solving at timstep number "<< timestep_number <<"..." << std::endl;
+
+
+                    assemble_phi_rhs ();
+
+                    phi_mass_matrix.vmult(phi_system_rhs, old_phi_solution);
+                    phi_system_rhs.add(time_step,phi_nontime_rhs);
+
+                    phi_system_matrix.copy_from(phi_mass_matrix);
+                    phi_system_matrix.add(time_step,phi_nontime_matrix);
+
+                    phi_hanging_node_constraints.condense (phi_system_rhs);
+                    phi_hanging_node_constraints.condense (phi_system_matrix);
+
+
+                    solve_phi ();
+                    output_phi_results ();
+                    // error_analysis();
+                    old_phi_solution = phi_solution;
+
+                    assemble_rock_system (); // need old_phi_solution here
+                    solve_rock_system ();
+                    assemble_pf_system ();
+                    solve_fluid_system ();
+                    
+                    assemble_phi_system ();
+                    output_results ();
+    
+
+                }
 
         compute_errors ();
-        output_results ();
         
     }
 }
