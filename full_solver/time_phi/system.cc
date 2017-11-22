@@ -875,22 +875,24 @@ namespace System
     	        QGauss<dim-1> face_quadrature_formula(pr_degree+2);
 
     	        FEValues<dim> rock_fe_values (rock_fe, quadrature_formula,
-    	                                 update_values    |
-    	                                 update_quadrature_points  |
-    	                                 update_JxW_values |
-    	                                 update_gradients);
+    	                                 update_values    |  update_quadrature_points  |
+    	                                 update_JxW_values | update_gradients);
 
     	        FEFaceValues<dim> rock_fe_face_values ( rock_fe, face_quadrature_formula,
-    	                                          update_values |
-    	                                          update_normal_vectors |
-    	                                          update_quadrature_points |
-    	                                          update_JxW_values
-    	                                          );
+    	                                          update_values | update_normal_vectors |
+    	                                          update_quadrature_points |  update_JxW_values);
+
     	        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
-    	                                 update_values    |
-    	                                 update_quadrature_points  |
-    	                                 update_JxW_values |
-    	                                 update_gradients);
+    	                                 update_values    | update_quadrature_points  |
+    	                                 update_JxW_values | update_gradients);
+
+    	        FEValues<dim> pf_fe_values (pf_fe, quadrature_formula,
+    	                                 update_values    | update_quadrature_points  |
+    	                                 update_JxW_values | update_gradients);
+
+    	        FEValues<dim> vf_fe_values (vf_fe, quadrature_formula,
+    	                                    update_values    | update_gradients |
+    	                                    update_quadrature_points  | update_JxW_values);
 
     	        const unsigned int   dofs_per_cell   = rock_fe.dofs_per_cell;
 
@@ -902,16 +904,24 @@ namespace System
 
     	        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 
-    	        std::vector<double> boundary_values (n_face_q_points);
+    	        std::vector<double> 				  boundary_values (n_face_q_points);
     	        const RockRightHandSide<dim>          right_hand_side;
     	    	std::vector<Vector<double> >     	  rhs_values (n_q_points, Vector<double>(dim+1));
+
+    	    	std::vector<double>					  pf_values (n_q_points);
+    	    	std::vector<Tensor<1,dim>>     		  grad_pf_values (n_q_points);
     	    	std::vector<double>					  phi_values (n_q_points);
+    	    	std::vector<Tensor<1,dim>>     		  grad_phi_values (n_q_points);
+    	    	std::vector<Vector<double> >     	  vf_values (n_q_points);
+    		    std::vector<double> 			 	  div_vf_values (n_q_points);
+
+    		    std::vector<Tensor<1,dim>>    		  unitz_values (n_q_points);
 
 
     	        const FEValuesExtractors::Vector velocities (0);
     	        const FEValuesExtractors::Scalar pressure (dim);
 
-    	        std::vector<Tensor<1,dim>>          phi_u       (dofs_per_cell); // why is this a tensor?
+    	        std::vector<Tensor<1,dim>>           phi_u       (dofs_per_cell); // why is this a tensor?
     	        std::vector<SymmetricTensor<2,dim> > symgrad_phi_u (dofs_per_cell);
 
     	        std::vector<Tensor<2,dim> >          grad_phi_u (dofs_per_cell);
@@ -923,18 +933,31 @@ namespace System
     	        endc = rock_dof_handler.end();
     	        typename DoFHandler<dim>::active_cell_iterator
     	        phi_cell = phi_dof_handler.begin_active();
-    	        for (; cell!=endc; ++cell, ++phi_cell)
+    	        typename DoFHandler<dim>::active_cell_iterator
+    	        pf_cell = pf_dof_handler.begin_active();
+    	        typename DoFHandler<dim>::active_cell_iterator
+    	        vf_cell = vf_dof_handler.begin_active();
+    	        for (; cell!=endc; ++cell, ++phi_cell, ++pf_cell, ++vf_cell)
     	        {
     	            rock_fe_values.reinit (cell);
     	            phi_fe_values.reinit (phi_cell);
+    	            pf_fe_values.reinit (pf_cell);
+    	            vf_fe_values.reinit (vf_cell);
+
     	            local_matrix = 0;
     	            local_rhs = 0;
 
     	            right_hand_side.vector_value_list(rock_fe_values.get_quadrature_points(),
     	                                                 rhs_values);
 
-    	            phi_fe_values.get_function_values (phi_solution, phi_values);
+    	            unitz (vf_fe_values.get_quadrature_points(), unitz_values);
 
+    	            pf_fe_values[pressure].get_function_values (pf_solution, pf_values);
+    	            pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
+    	            phi_fe_values.get_function_values (phi_solution, phi_values);
+    	            phi_fe_values.get_function_gradients (phi_solution, grad_phi_values);
+    	            vf_fe_values[velocities].get_function_values (vf_solution, vf_values);
+    	            vf_fe_values[velocities].get_function_divergences (vf_solution, div_vf_values);
 
     	            for (unsigned int q=0; q<n_q_points; ++q)
     	            {
@@ -963,6 +986,10 @@ namespace System
     	                local_rhs(i) += rock_fe_values.shape_value(i,q) *
     	                                rhs_values[q](component_i) *
     	                                rock_fe_values.JxW(q);
+
+//                        local_rhs(i) += phi_i_p *
+//                        					div_vr_values[q] *
+//    										pf_fe_values.JxW(q);
 
     	                }
 
