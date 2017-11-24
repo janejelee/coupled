@@ -1,22 +1,3 @@
-/* ---------------------------------------------------------------------
- *
- * Copyright (C) 2005 - 2015 by the deal.II authors
- *
- * This file is part of the deal.II library.
- *
- * The deal.II library is free software; you can use it, redistribute
- * it, and/or modify it under the terms of the GNU Lesser General
- * Public License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- * The full text of the license can be found in the file LICENSE at
- * the top level of the deal.II distribution.
- *
- * ---------------------------------------------------------------------
- 
- *
- * Author: Wolfgang Bangerth, Texas A&M University, 2005, 2006
- */
-
 
 
 #include <deal.II/base/quadrature_lib.h>
@@ -76,6 +57,7 @@ namespace System
     const double perm_const = 1.0;
     const double phi = 0.7;
     const double rho_f = 1.0;
+    const double rho_r = 1.0;
     const double gamma = 1.0;
 
     const double top = 1.0;
@@ -90,9 +72,9 @@ namespace System
         const double timestep = 1e-6;
     const double final_time = 50*timestep;
     const double error_time = 13;
-        
+
     }
-    
+
     template <int dim>
     class DAE
     {
@@ -100,7 +82,7 @@ namespace System
         DAE (const unsigned int degree);
         ~DAE ();
         void run ();
-        
+
     private:
         void make_grid();
         void setup_fluid_dofs ();
@@ -121,7 +103,7 @@ namespace System
         void output_results () const;
         void output_phi_results ();
         Triangulation<dim>   triangulation;
-        
+
         const unsigned int   pr_degree;
         FESystem<dim>        rock_fe;
         DoFHandler<dim>      rock_dof_handler;
@@ -136,25 +118,25 @@ namespace System
         FESystem<dim>        pf_fe;
         DoFHandler<dim>      pf_dof_handler;
         ConstraintMatrix     pf_constraints;
-        
+
         BlockSparsityPattern      pf_sparsity_pattern;
         BlockSparseMatrix<double> pf_system_matrix;
         BlockVector<double>       pf_solution;
         BlockVector<double>       pf_initial_solution;
         BlockVector<double>       pf_system_rhs;
-        
+
         const unsigned int 	vf_degree;
         FESystem<dim>		vf_fe;
         DoFHandler<dim>     vf_dof_handler;
         ConstraintMatrix    vf_constraints;
-        
+
         SparsityPattern      vf_sparsity_pattern;
         SparseMatrix<double> vf_system_matrix;
         SparseMatrix<double> vf_mass_matrix;
         Vector<double>       vf_solution;
         Vector<double>       vf_initial_solution;
         Vector<double>       vf_system_rhs;
-        
+
         DoFHandler<dim>      phi_dof_handler;
         FE_Q<dim>            phi_fe;
         ConstraintMatrix     phi_hanging_node_constraints;
@@ -166,7 +148,7 @@ namespace System
         Vector<double>		 old_phi_solution;
         Vector<double>       phi_system_rhs;
         Vector<double>		 phi_nontime_rhs;
-        
+
         Vector<double>       phi_pf;
 
         double               time;
@@ -174,8 +156,8 @@ namespace System
         unsigned int         timestep_number;
 
     };
-    
-    
+
+
 
     template <int dim>
     class RockBoundaryValuesTop : public Function<dim>
@@ -338,24 +320,24 @@ namespace System
       values(2) = p[0]*p[1];
     }
 
-    
+
     template <int dim>
     class PressureBoundaryValues : public Function<dim>
     {
     public:
         PressureBoundaryValues () : Function<dim>(1) {}
-        
+
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
     };
-    
-    
+
+
     template <int dim>
     class ExactSolution_pf : public Function<dim>
     {
     public:
         ExactSolution_pf () : Function<dim>(dim+1) {}
-        
+
         virtual void vector_value (const Point<dim> &p,
                                    Vector<double>   &value) const;
     };
@@ -364,13 +346,13 @@ namespace System
     {
     public:
         ExactSolution_vf () : Function<dim>(dim+1) {}
-        
+
         virtual void vector_value (const Point<dim> &p,
                                    Vector<double>   &value) const;
     };
-    
 
-    
+
+
     template <int dim>
     double PressureBoundaryValues<dim>::value (const Point<dim>  &p,
                                                const unsigned int /*component*/) const
@@ -378,22 +360,22 @@ namespace System
         // This is the dirichlet condition for the top
         return -2./3*data::rho_f + p[0]*0.0; // last term added to avoid warnings on work comp
     }
-    
+
     template <int dim>
     void unitz (const std::vector<Point<dim> > &points,
                 std::vector<Tensor<1, dim> >   &values)
     {
-        
+
         for (unsigned int point_n = 0; point_n < points.size(); ++point_n)
         {
-            
+
             values[point_n][0] = 0.0;
             values[point_n][1] = 1.0;
         }
-        
+
     }
 
-    
+
     template <int dim>
     void
     ExactSolution_pf<dim>::vector_value (const Point<dim> &p,
@@ -401,10 +383,10 @@ namespace System
     {
         Assert (values.size() == dim+1,
                 ExcDimensionMismatch (values.size(), dim+1));
-        
-        
+
+
         const double permeability = data::perm_const;
-        
+
         values(0) = 0.0;
         values(1) = data::lambda*data::rho_f*(1-p[1]*p[1])*permeability;
         values(2) = -data::rho_f*(p[1] - (1.0/3.0)*p[1]*p[1]*p[1]);
@@ -417,16 +399,16 @@ namespace System
     {
         values(0) = 0.5*(p[0]*p[0]+p[1]*p[1]);
         values(1) = /*(1.0-1.0/data::phi)**/data::lambda*data::perm_const*data::rho_f*p[1]*p[1] - p[0]*p[1];
-        
+
     }
-    
-    
+
+
     template <int dim>
     class KInverse : public TensorFunction<2,dim>
     {
     public:
         KInverse () : TensorFunction<2,dim>() {}
-        
+
         virtual void value_list (const std::vector<Point<dim> > &points,
                                  std::vector<Tensor<2,dim> >    &values) const;
     };
@@ -435,28 +417,28 @@ namespace System
     KInverse<dim>::value_list (const std::vector<Point<dim> > &points,
                                std::vector<Tensor<2,dim> >    &values) const
     {
-        
+
         Assert (points.size() == values.size(),
-                
-                
+
+
                 ExcDimensionMismatch (points.size(), values.size()));
         for (unsigned int p=0; p<points.size(); ++p)
         {
             values[p].clear ();
-            
+
             const double permeability = data::perm_const;
-            
+
             for (unsigned int d=0; d<dim; ++d)
                 values[p][d][d] = 1./permeability;
         }
     }
-    
+
     template <int dim>
     class K : public TensorFunction<2,dim>
     {
     public:
         K () : TensorFunction<2,dim>() {}
-        
+
         virtual void value_list (const std::vector<Point<dim> > &points,
                                  std::vector<Tensor<2,dim> >    &values) const;
     };
@@ -467,12 +449,12 @@ namespace System
     {
         Assert (points.size() == values.size(),
                 ExcDimensionMismatch (points.size(), values.size()));
-        
+
         for (unsigned int p=0; p<points.size(); ++p)
         {
             values[p].clear ();
-            
-            
+
+
             Assert (points.size() == values.size(),
                     ExcDimensionMismatch (points.size(), values.size()));
             for (unsigned int p=0; p<points.size(); ++p)
@@ -481,14 +463,14 @@ namespace System
                                     const double distance_to_flowline
                                     = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));*/
                 const double permeability = data::perm_const;
-                
+
                 for (unsigned int d=0; d<dim; ++d)
                     values[p][d][d] = permeability;
             }
-            
+
         }
     }
-    
+
 
     template <int dim>
     class PhiBoundaryValues : public Function<dim>
@@ -522,7 +504,7 @@ namespace System
         for (unsigned int i=0; i<points.size(); ++i)
             values[i] = PhiBoundaryValues<dim>::value (points[i], component);
     }
-    
+
     template <int dim>
     class PhiInitialFunction : public Function<dim>
     {
@@ -550,22 +532,22 @@ namespace System
         virtual void vector_value (const Point<dim> &p,
                                    Vector<double>   &value) const;
     };
-    
-    
+
+
     template <int dim>
     double
     vfInitialFunction<dim>::value (const Point<dim>  &p,
                                    const unsigned int component) const
     {
-        
+
         if (component == 0)
             return 0.0;
         else if (component == 1)
             return 0.0*p[0];
         return 0.0;
     }
-    
-    
+
+
     template <int dim>
     void
     vfInitialFunction<dim>::vector_value (const Point<dim> &p,
@@ -583,12 +565,12 @@ namespace System
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
     };
-    
+
     template <int dim>
     double pfInitialFunction<dim>::value (const Point<dim>  &p,
                                            const unsigned int /*component*/) const
     {
-        
+
         return 0.0;
     }
 
@@ -606,7 +588,7 @@ namespace System
     pf_fe (FE_RaviartThomas<dim>(pf_degree), 1,
            FE_Q<dim>(pf_degree), 1),
     pf_dof_handler (triangulation),
-    
+
     vf_degree (degree),
     vf_fe (FE_Q<dim>(pf_degree+1), dim),
     vf_dof_handler (triangulation),
@@ -615,35 +597,35 @@ namespace System
     phi_fe (data::problem_degree)
 
     {}
-    
+
     template <int dim>
     DAE<dim>::~DAE ()
     {
         phi_dof_handler.clear ();
     }
 
-    
+
     template <int dim>
     void DAE<dim>::make_grid ()
     {
         {
             std::vector<unsigned int> subdivisions (dim, 1);
             subdivisions[0] = 4;
-            
+
             const Point<dim> bottom_left = (dim == 2 ?
                                             Point<dim>(data::left,data::bottom) :
                                             Point<dim>(-2,0,-1));
             const Point<dim> top_right   = (dim == 2 ?
                                             Point<dim>(data::right,data::top) :
                                             Point<dim>(0,1,0));
-            
+
             GridGenerator::subdivided_hyper_rectangle (triangulation,
                                                        subdivisions,
                                                        bottom_left,
                                                        top_right);
         }
-        
-        
+
+
         for (typename Triangulation<dim>::active_cell_iterator
              cell = triangulation.begin_active();
              cell != triangulation.end(); ++cell)
@@ -652,8 +634,8 @@ namespace System
                     cell->face(f)->set_all_boundary_ids(1);
                 else if (cell->face(f)->center()[dim-1] == data::bottom)
                     cell->face(f)->set_all_boundary_ids(2);
-        
-        
+
+
         triangulation.refine_global (data::refinement_level);
 
     }
@@ -814,7 +796,7 @@ namespace System
                     	pf_system_rhs.collect_sizes ();
 
 
-            
+
                 vf_system_matrix.clear ();
                 vf_constraints.clear ();
                 DoFTools::make_hanging_node_constraints (vf_dof_handler,
@@ -838,9 +820,9 @@ namespace System
                 MatrixCreator::create_mass_matrix(vf_dof_handler,
                                                   QGauss<dim>(vf_fe.degree+2),
                                                   vf_mass_matrix);
-            
+
 	}
-    
+
     template <int dim>
     void DAE<dim>::setup_phi_dofs()
     	{
@@ -880,7 +862,7 @@ namespace System
 
     	        FEFaceValues<dim> rock_fe_face_values ( rock_fe, face_quadrature_formula,
     	                                          update_values | update_normal_vectors |
-    	                                          update_quadrature_points |  update_JxW_values);
+    	                                          update_quadrature_points |update_JxW_values   );
 
     	        FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
     	                                 update_values    | update_quadrature_points  |
@@ -891,11 +873,10 @@ namespace System
     	                                 update_JxW_values | update_gradients);
 
     	        FEValues<dim> vf_fe_values (vf_fe, quadrature_formula,
-    	                                    update_values    | update_gradients |
-    	                                    update_quadrature_points  | update_JxW_values);
+    	                                 update_values    | update_quadrature_points  |
+    	                                 update_JxW_values | update_gradients);
 
     	        const unsigned int   dofs_per_cell   = rock_fe.dofs_per_cell;
-
     	        const unsigned int   n_q_points      = quadrature_formula.size();
     	        const unsigned int   n_face_q_points = face_quadrature_formula.size();
 
@@ -904,19 +885,17 @@ namespace System
 
     	        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 
-    	        std::vector<double> 				  boundary_values (n_face_q_points);
+    	        std::vector<double> boundary_values (n_face_q_points);
     	        const RockRightHandSide<dim>          right_hand_side;
     	    	std::vector<Vector<double> >     	  rhs_values (n_q_points, Vector<double>(dim+1));
 
-    	    	std::vector<double>					  pf_values (n_q_points);
-    	    	std::vector<Tensor<1,dim>>     		  grad_pf_values (n_q_points);
-    	    	std::vector<double>					  phi_values (n_q_points);
-    	    	std::vector<Tensor<1,dim>>     		  grad_phi_values (n_q_points);
-    	    	std::vector<Vector<double> >     	  vf_values (n_q_points);
-    		    std::vector<double> 			 	  div_vf_values (n_q_points);
-
-    		    std::vector<Tensor<1,dim>>    		  unitz_values (n_q_points);
-
+    		    std::vector<Tensor<1,dim>>    unitz_values (n_q_points);
+    		    std::vector<Tensor<1,dim>> 	  vf_values (n_q_points);
+    		    std::vector<double>			  pf_values (n_q_points);
+    		    std::vector<double>			  phi_values (n_q_points);
+    		    std::vector<double>			  div_vf_values (n_q_points);
+    		    std::vector<Tensor<1,dim>>    grad_pf_values (n_q_points);
+    		    std::vector<Tensor<1,dim>>    grad_phi_values (n_q_points);
 
     	        const FEValuesExtractors::Vector velocities (0);
     	        const FEValuesExtractors::Scalar pressure (dim);
@@ -942,7 +921,7 @@ namespace System
     	            rock_fe_values.reinit (cell);
     	            phi_fe_values.reinit (phi_cell);
     	            pf_fe_values.reinit (pf_cell);
-    	            vf_fe_values.reinit (vf_cell);
+//    	            vf_fe_values.reinit (vf_cell);
 
     	            local_matrix = 0;
     	            local_rhs = 0;
@@ -950,14 +929,12 @@ namespace System
     	            right_hand_side.vector_value_list(rock_fe_values.get_quadrature_points(),
     	                                                 rhs_values);
 
-    	            unitz (vf_fe_values.get_quadrature_points(), unitz_values);
-
-    	            pf_fe_values[pressure].get_function_values (pf_solution, pf_values);
-    	            pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
     	            phi_fe_values.get_function_values (phi_solution, phi_values);
     	            phi_fe_values.get_function_gradients (phi_solution, grad_phi_values);
-    	            vf_fe_values[velocities].get_function_values (vf_solution, vf_values);
-    	            vf_fe_values[velocities].get_function_divergences (vf_solution, div_vf_values);
+    	            pf_fe_values[pressure].get_function_values (pf_solution, pf_values);
+    	            pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
+
+
 
     	            for (unsigned int q=0; q<n_q_points; ++q)
     	            {
@@ -981,15 +958,22 @@ namespace System
     												  * rock_fe_values.JxW(q);
 
     	                    }
-
-    	                const unsigned int component_i = rock_fe.system_to_component_index(i).first;
-    	                local_rhs(i) += rock_fe_values.shape_value(i,q) *
+    	                    if (timestep_number == 0)
+    	                    {
+    	                    	const unsigned int component_i = rock_fe.system_to_component_index(i).first;
+    	                    	local_rhs(i) += rock_fe_values.shape_value(i,q) *
     	                                rhs_values[q](component_i) *
     	                                rock_fe_values.JxW(q);
+    	                    }
+    	                    else
+    	                    {
 
-//                        local_rhs(i) += phi_i_p *
-//                        					div_vr_values[q] *
-//    										pf_fe_values.JxW(q);
+    	                    	local_rhs(i) += (0*grad_phi_values[q]*phi_u[i]
+																		  - phi_values[q]*phi_p[i] )*
+														rock_fe_values.JxW(q);
+    	                    	std::cout << phi_values[q] << std::endl;
+//
+    	                 }
 
     	                }
 
@@ -1050,13 +1034,13 @@ namespace System
 
 
 
-    
+
     template <int dim>
     void DAE<dim>::assemble_pf_system ()
     {
         QGauss<dim>   quadrature_formula(pf_degree+2);
         QGauss<dim-1> face_quadrature_formula(pf_degree+2);
-        
+
         FEValues<dim> pf_fe_values (pf_fe, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
@@ -1067,30 +1051,30 @@ namespace System
         FEValues<dim> vr_fe_values (rock_fe, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
-        
+
         const unsigned int   dofs_per_cell   = pf_fe.dofs_per_cell;
         const unsigned int   n_q_points      = quadrature_formula.size();
         const unsigned int   n_face_q_points = face_quadrature_formula.size();
-        
+
         FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
         Vector<double>       local_rhs (dofs_per_cell);
-        
+
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-        
+
         const PressureBoundaryValues<dim> pressure_boundary_values;
         const KInverse<dim>               k_inverse;
         const K<dim>               		  k;
-        
+
         std::vector<double> div_vr_values (n_q_points);
         std::vector<double> boundary_values (n_face_q_points);
 
         std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
         std::vector<Tensor<2,dim> > k_values (n_q_points);
-        
-        
+
+
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
-        
+
         typename DoFHandler<dim>::active_cell_iterator
         cell = pf_dof_handler.begin_active(),
         endc = pf_dof_handler.end();
@@ -1103,12 +1087,12 @@ namespace System
 
             local_matrix = 0;
             local_rhs = 0;
-            
+
             k_inverse.value_list (pf_fe_values.get_quadrature_points(),
                                   k_inverse_values);
             k.value_list (pf_fe_values.get_quadrature_points(),
                           k_values);
-            
+
             vr_fe_values[velocities].get_function_divergences (rock_solution, div_vr_values);
 
             for (unsigned int q=0; q<n_q_points; ++q)
@@ -1117,26 +1101,26 @@ namespace System
                     const Tensor<1,dim> phi_i_u     = pf_fe_values[velocities].value (i, q);
                     const double        div_phi_i_u = pf_fe_values[velocities].divergence (i, q);
                     const double        phi_i_p     = pf_fe_values[pressure].value (i, q);
-                    
+
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
                         const Tensor<1,dim> phi_j_u     = pf_fe_values[velocities].value (j, q);
                         const double        div_phi_j_u = pf_fe_values[velocities].divergence (j, q);
                         const double        phi_j_p     = pf_fe_values[pressure].value (j, q);
-                        
+
                         local_matrix(i,j) += ( 1./data::lambda * phi_i_u * k_inverse_values[q] * phi_j_u
                                               - div_phi_i_u * phi_j_p
                                               - phi_i_p * div_phi_j_u)
                         * pf_fe_values.JxW(q);
                     }
-                    
+
                     local_rhs(i) += phi_i_p *
                     					div_vr_values[q] *
 										pf_fe_values.JxW(q);
                     // BE CAREFUL HERE ONCE K is not constant or 1 anymore. have taken div of the constants as zero
                 }
-            
-            
+
+
             for (unsigned int face_no=0;
                  face_no<GeometryInfo<dim>::faces_per_cell;
                  ++face_no)
@@ -1146,11 +1130,11 @@ namespace System
                 {
                     pf_fe_face_values.reinit (cell, face_no);
                     // DIRICHLET CONDITION FOR TOP. pf = pr at top of basin
-                    
+
                     pressure_boundary_values
                     .value_list (pf_fe_face_values.get_quadrature_points(),
                                  boundary_values);
-                    
+
                     for (unsigned int q=0; q<n_face_q_points; ++q)
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
                             local_rhs(i) += -( pf_fe_face_values[velocities].value (i, q) *
@@ -1158,8 +1142,8 @@ namespace System
                                               boundary_values[q] *
                                               pf_fe_face_values.JxW(q));
                 }
-            
-            
+
+
             cell->get_dof_indices (local_dof_indices);
             for (unsigned int i=0; i<dofs_per_cell; ++i)
                 for (unsigned int j=0; j<dofs_per_cell; ++j)
@@ -1169,10 +1153,10 @@ namespace System
             for (unsigned int i=0; i<dofs_per_cell; ++i)
                 pf_system_rhs(local_dof_indices[i]) += local_rhs(i);
         }
-        
-        
+
+
         // NOW NEED TO STRONGLY IMPOSE THE FLUX CONDITIONS BOTH ON SIDES AND BOTTOM
-        
+
         std::map<types::global_dof_index, double> boundary_values_flux;
         {
             types::global_dof_index n_dofs = pf_dof_handler.n_dofs();
@@ -1182,29 +1166,29 @@ namespace System
             std::vector<bool> selected_dofs(n_dofs);
             std::set< types::boundary_id > boundary_ids;
             boundary_ids.insert(0);
-            
+
             DoFTools::extract_boundary_dofs(pf_dof_handler, ComponentMask(componentVector),
                                             selected_dofs, boundary_ids);
-            
+
             for (types::global_dof_index i = 0; i < n_dofs; i++) {
                 if (selected_dofs[i]) boundary_values_flux[i] = 0.0; // Side boudaries have flux 0 on pressure
             }
-            
+
         }
 
         // Apply the conditions
         MatrixTools::apply_boundary_values(boundary_values_flux,
                                            pf_system_matrix, pf_solution, pf_system_rhs);
-        
-        
+
+
     }
-    
+
     template <int dim>
     void DAE<dim>::assemble_vf_system ()
     {
-        
+
         QGauss<dim>   quadrature_formula(vf_degree+2);
-        
+
         FEValues<dim> vf_fe_values (vf_fe, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
@@ -1219,23 +1203,23 @@ namespace System
         FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
-	       
+
         const unsigned int   dofs_per_cell   = vf_fe.dofs_per_cell;
         const unsigned int   n_q_points      = quadrature_formula.size();
-        
+
         FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
         Vector<double>       local_rhs (dofs_per_cell);
-        
+
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-	       
+
 	       std::vector<Tensor<1,dim>>     grad_pf_values (n_q_points);
 	       std::vector<Tensor<1,dim>>     unitz_values (n_q_points);
 	       std::vector<Tensor<1,dim>> 	  vr_values (n_q_points);
 	       std::vector<double>			  phi_values (n_q_points);
-	       
+
 	       const FEValuesExtractors::Vector velocities (0);
 	       const FEValuesExtractors::Scalar pressure (dim);
-        
+
         typename DoFHandler<dim>::active_cell_iterator
         cell = vf_dof_handler.begin_active(),
         endc = vf_dof_handler.end();
@@ -1251,20 +1235,20 @@ namespace System
                  pf_fe_values.reinit(pf_cell);
                  vr_fe_values.reinit(vr_cell);
                  phi_fe_values.reinit(phi_cell);
-                 
+
                  local_matrix = 0;
                  local_rhs = 0;
-                 
+
                  unitz (vf_fe_values.get_quadrature_points(), unitz_values);
                  pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
                  vr_fe_values[velocities].get_function_values (rock_solution, vr_values);
                  phi_fe_values.get_function_values (phi_solution, phi_values);
-                 
+
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
                  {
                      const unsigned int
                      component_i = vf_fe.system_to_component_index(i).first;
-                     
+
                      for (unsigned int q=0; q<n_q_points; ++q)
                          local_rhs(i) +=    (-vf_fe_values.shape_value(i,q) *
                                              data::lambda*data::perm_const*(1.0/phi_values[q])* data::rho_f*
@@ -1275,22 +1259,22 @@ namespace System
                                              data::lambda*data::perm_const*(1.0/phi_values[q])* grad_pf_values[q][component_i] // minus pressure gradient
                                              ) *
 											 	 	 vf_fe_values.JxW(q);
-                     
+
                  }
-                 
+
                  cell->get_dof_indices (local_dof_indices);
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
                      for (unsigned int j=0; j<dofs_per_cell; ++j)
                          vf_system_matrix.add (local_dof_indices[i],
                                                local_dof_indices[j],
                                                local_matrix(i,j));
-                 
+
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
                      vf_system_rhs(local_dof_indices[i]) += local_rhs(i);
              }
         vf_constraints.condense (vf_system_matrix);
         vf_constraints.condense (vf_system_rhs);
-        
+
         std::map<types::global_dof_index, double> vf_boundary;
         {
             types::global_dof_index n_dofs = vf_dof_handler.n_dofs();
@@ -1314,8 +1298,8 @@ namespace System
         MatrixTools::apply_boundary_values(vf_boundary,
                                            vf_system_matrix, vf_solution, vf_system_rhs);
     }
-    
-    
+
+
     template <int dim>
     void DAE<dim>::solve_fluid_system ()
     {
@@ -1329,13 +1313,13 @@ namespace System
         SparseDirectUMFPACK  vf_direct;
         vf_direct.initialize(vf_system_matrix);
         vf_direct.vmult (vf_solution, vf_system_rhs);
-        
-        
-        
-    }
-    
 
-    
+
+
+    }
+
+
+
     template <int dim>
     void
     DAE<dim>::assemble_phi_system ()
@@ -1642,11 +1626,11 @@ namespace System
 //        << "," << std::endl <<   "        ||e_u||_L2 = " << u_l2_error
 //        << ", " << std::endl <<   "        ||e_vf||_L2 = " << vf_l2_error
 //        << ". " << std::endl;
-        
+
     }
-    
-    
-    
+
+
+
     template <int dim>
     void DAE<dim>::output_results () const
     {
@@ -1700,7 +1684,7 @@ namespace System
     	}
 
     }
-    
+
     template <int dim>
     void DAE<dim>::output_phi_results ()
     {
@@ -1720,8 +1704,8 @@ namespace System
 
 
     }
-    
-    
+
+
     template <int dim>
     void DAE<dim>::run ()
     {
@@ -1732,10 +1716,10 @@ namespace System
         setup_rock_dofs ();
         setup_fluid_dofs ();
         setup_phi_dofs ();
-        
+
 	       const FEValuesExtractors::Vector velocities (0);
 	       const FEValuesExtractors::Scalar pressure (dim);
-        
+
         VectorTools::interpolate(phi_dof_handler, PhiInitialFunction<dim>(), old_phi_solution);
         VectorTools::interpolate(vf_dof_handler, vfInitialFunction<dim>(), vf_initial_solution);
 
@@ -1745,15 +1729,13 @@ namespace System
         solve_rock_system ();
         assemble_pf_system ();
         solve_fluid_system ();
-//        // At this point, we have values for pr vr pf vf to use in the assembling of phi system
-        
-//        phi_solution.vmult(phi_pf, pf_solution); tried this didn't work.
+
 
         assemble_phi_system ();
-        
+
         output_results ();
         output_phi_results();
-        
+
         time_step = data::timestep;
 
         while (time <= data::final_time)
@@ -1784,15 +1766,15 @@ namespace System
                     solve_rock_system ();
                     assemble_pf_system ();
                     solve_fluid_system ();
-                    
+
                     assemble_phi_system ();
                     output_results ();
-    
+
 
                 }
 
         compute_errors ();
-        
+
     }
 }
 
@@ -1803,7 +1785,7 @@ int main ()
     {
         using namespace dealii;
         using namespace System;
-        
+
         DAE<data::dimension> dae_problem(data::problem_degree);
         dae_problem.run ();
     }
@@ -1817,7 +1799,7 @@ int main ()
         << "Aborting!" << std::endl
         << "----------------------------------------------------"
         << std::endl;
-        
+
         return 1;
     }
     catch (...)
@@ -1831,6 +1813,6 @@ int main ()
         << std::endl;
         return 1;
     }
-    
+
     return 0;
 }
