@@ -67,10 +67,10 @@ namespace System
 
     const int dimension = 2;
     const int problem_degree = 1;
-    const int refinement_level = 3;
+    const int refinement_level = 4;
 
         const double timestep = 1e-6;
-    const double final_time = 50*timestep;
+    const double final_time = 1*timestep;
     const double error_time = 13;
 
     }
@@ -661,29 +661,36 @@ namespace System
             DoFTools::make_hanging_node_constraints (rock_dof_handler,
                                                      rock_constraints);
 
-            VectorTools::interpolate_boundary_values (rock_dof_handler,
-                                                      1,
-                                                      RockBoundaryValuesTop<dim>(),
-                                                      rock_constraints,
-                                                      rock_fe.component_mask(velocities));
+//            VectorTools::interpolate_boundary_values (rock_dof_handler,
+//                                                      1,
+//                                                      RockBoundaryValuesTop<dim>(),
+//                                                      rock_constraints,
+//                                                      rock_fe.component_mask(velocities));
 
-            VectorTools::interpolate_boundary_values (rock_dof_handler,
-                                                      2,
-                                                      RockBoundaryValuesBottom<dim>(),
-                                                      rock_constraints,
-                                                      rock_fe.component_mask(velocities));
+//            VectorTools::interpolate_boundary_values (rock_dof_handler,
+//                                                      2,
+//                                                      RockBoundaryValuesBottom<dim>(),
+//                                                      rock_constraints,
+//                                                      rock_fe.component_mask(velocities));
 
-            VectorTools::interpolate_boundary_values (rock_dof_handler,
-                                                      0,
-                                                      RockBoundaryValuesSides<dim>(),
-                                                      rock_constraints,
-                                                      rock_fe.component_mask(velocities));
+//            VectorTools::interpolate_boundary_values (rock_dof_handler,
+//                                                      0,
+//                                                      RockBoundaryValuesSides<dim>(),
+//                                                      rock_constraints,
+//                                                      rock_fe.component_mask(velocities));
 
-//            std::set<types::boundary_id> no_normal_flux_boundaries;
-//            no_normal_flux_boundaries.insert (0);
-//            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
-//                                                             no_normal_flux_boundaries,
+            std::set<types::boundary_id> no_normal_flux_boundaries;
+            no_normal_flux_boundaries.insert (0);
+            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
+                                                             no_normal_flux_boundaries,
+                                                             rock_constraints);
+//            std::set<types::boundary_id> no_tangential_flux_boundaries;
+//            no_tangential_flux_boundaries.insert (2);
+//            VectorTools::compute_nonzero_tangential_flux_constraints (rock_dof_handler, 0,
+//                                                             no_tangential_flux_boundaries,
+//															 ZeroFunction<dim>(dim),
 //                                                             rock_constraints);
+
 //
 
 
@@ -968,12 +975,15 @@ namespace System
     	                    else
     	                    {
 
-    	                    	local_rhs(i) += (0*grad_phi_values[q]*phi_u[i]
-																		  - phi_values[q]*phi_p[i] )*
+    	                    	local_rhs(i) += (grad_phi_values[q]*phi_u[i]
+													 + ((1.0-phi_values[1])*data::rho_r + phi_values[q]*data::rho_f)
+													 * unitz_values[q]*phi_u[i]
+																		  - phi_values[q]*phi_p[i]
+																							)*
 														rock_fe_values.JxW(q);
     	                    	std::cout << phi_values[q] << std::endl;
 //
-    	                 }
+    	                    }
 
     	                }
 
@@ -988,29 +998,29 @@ namespace System
 
     	        }
 
-    	        std::map<types::global_dof_index, double> boundary_values_flux;
-    	        {
-    	                types::global_dof_index n_dofs = rock_dof_handler.n_dofs();
-    	                std::vector<bool> componentVector(dim + 1, false); // condition is on pressue
-    	                // setting flux value for the sides at 0 ON THE PRESSURE
-    	                componentVector[dim] = true;
+//    	        std::map<types::global_dof_index, double> boundary_values_flux;
+//    	        {
+//    	                types::global_dof_index n_dofs = rock_dof_handler.n_dofs();
+//    	                std::vector<bool> componentVector(dim + 1, false); // condition is on pressue
+//    	                // setting flux value for the sides at 0 ON THE PRESSURE
+//    	                componentVector[dim] = true;
+//
+//    	                std::vector<bool> selected_dofs(n_dofs);
+//    	                std::set< types::boundary_id > boundary_ids;
+//    	                boundary_ids.insert(2);
+//
+//    	                DoFTools::extract_boundary_dofs(rock_dof_handler, ComponentMask(componentVector),
+//    	                        selected_dofs, boundary_ids);
+//
+//    	                for (types::global_dof_index i = 0; i < n_dofs; i++) {
+//    	                    if (selected_dofs[i]) boundary_values_flux[i] = 00.0;
+//    	                }
+//
+//    	        }
 
-    	                std::vector<bool> selected_dofs(n_dofs);
-    	                std::set< types::boundary_id > boundary_ids;
-    	                boundary_ids.insert(2);
 
-    	                DoFTools::extract_boundary_dofs(rock_dof_handler, ComponentMask(componentVector),
-    	                        selected_dofs, boundary_ids);
-
-    	                for (types::global_dof_index i = 0; i < n_dofs; i++) {
-    	                    if (selected_dofs[i]) boundary_values_flux[i] = 00.0;
-    	                }
-
-    	        }
-
-
-    	        MatrixTools::apply_boundary_values(boundary_values_flux,
-    	                rock_system_matrix, rock_solution, rock_system_rhs);
+//    	        MatrixTools::apply_boundary_values(boundary_values_flux,
+//    	                rock_system_matrix, rock_solution, rock_system_rhs);
 
 
 
@@ -1051,6 +1061,9 @@ namespace System
         FEValues<dim> vr_fe_values (rock_fe, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
+        FEFaceValues<dim> vr_fe_face_values (rock_fe, face_quadrature_formula,
+                                                  update_values | update_quadrature_points |
+                                                  update_JxW_values | update_normal_vectors);
 
         const unsigned int   dofs_per_cell   = pf_fe.dofs_per_cell;
         const unsigned int   n_q_points      = quadrature_formula.size();
@@ -1067,6 +1080,7 @@ namespace System
 
         std::vector<double> div_vr_values (n_q_points);
         std::vector<double> boundary_values (n_face_q_points);
+	    std::vector<double> pr_face_values (n_face_q_points);
 
         std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
         std::vector<Tensor<2,dim> > k_values (n_q_points);
@@ -1129,6 +1143,9 @@ namespace System
                     (cell->face(face_no)->boundary_id() == 1)) // Basin top has boundary id 1
                 {
                     pf_fe_face_values.reinit (cell, face_no);
+                    vr_fe_face_values.reinit (vr_cell, face_no);
+                    vr_fe_face_values[pressure].get_function_values (rock_solution, pr_face_values);
+
                     // DIRICHLET CONDITION FOR TOP. pf = pr at top of basin
 
                     pressure_boundary_values
@@ -1139,7 +1156,7 @@ namespace System
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
                             local_rhs(i) += -( pf_fe_face_values[velocities].value (i, q) *
                                               pf_fe_face_values.normal_vector(q) *
-                                              boundary_values[q] *
+                                              pr_face_values[q] *
                                               pf_fe_face_values.JxW(q));
                 }
 
@@ -1203,6 +1220,7 @@ namespace System
         FEValues<dim> phi_fe_values (phi_fe, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
+
 
         const unsigned int   dofs_per_cell   = vf_fe.dofs_per_cell;
         const unsigned int   n_q_points      = quadrature_formula.size();
@@ -1275,28 +1293,28 @@ namespace System
         vf_constraints.condense (vf_system_matrix);
         vf_constraints.condense (vf_system_rhs);
 
-        std::map<types::global_dof_index, double> vf_boundary;
-        {
-            types::global_dof_index n_dofs = vf_dof_handler.n_dofs();
-            std::vector<bool> componentVector(dim, true);
-                                  componentVector[0] = false;
-            std::vector<bool> selected_dofs(n_dofs);
-            std::set< types::boundary_id > boundary_ids;
-            boundary_ids.insert(2);
-
-            DoFTools::extract_boundary_dofs(vf_dof_handler, ComponentMask(componentVector),
-                                            selected_dofs, boundary_ids);
-
-            for (types::global_dof_index i = 0; i < n_dofs; i++) {
-                if (selected_dofs[i]) vf_boundary[i] = 00.0;
-            }
-
-        }
+//        std::map<types::global_dof_index, double> vf_boundary;
+//        {
+//            types::global_dof_index n_dofs = vf_dof_handler.n_dofs();
+//            std::vector<bool> componentVector(dim, true);
+//                                  componentVector[0] = false;
+//            std::vector<bool> selected_dofs(n_dofs);
+//            std::set< types::boundary_id > boundary_ids;
+//            boundary_ids.insert(2);
+//
+//            DoFTools::extract_boundary_dofs(vf_dof_handler, ComponentMask(componentVector),
+//                                            selected_dofs, boundary_ids);
+//
+//            for (types::global_dof_index i = 0; i < n_dofs; i++) {
+//                if (selected_dofs[i]) vf_boundary[i] = 00.0;
+//            }
+//
+//        }
 
 
         vf_system_matrix.copy_from(vf_mass_matrix);
-        MatrixTools::apply_boundary_values(vf_boundary,
-                                           vf_system_matrix, vf_solution, vf_system_rhs);
+//        MatrixTools::apply_boundary_values(vf_boundary,
+//                                           vf_system_matrix, vf_solution, vf_system_rhs);
     }
 
 
@@ -1388,7 +1406,7 @@ namespace System
                         cell_matrix(i,j) += ((vr_values[q_point] *
                                               phi_fe_values.shape_grad(j,q_point)   *
                                               (phi_fe_values.shape_value(i,q_point) +
-                                               delta *
+                                               0.0*delta *
                                                (vr_values[q_point] *
                                                 phi_fe_values.shape_grad(i,q_point)))) *
                                              phi_fe_values.JxW(q_point));
