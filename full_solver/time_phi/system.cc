@@ -158,111 +158,6 @@ namespace System
     };
 
 
-
-    template <int dim>
-    class RockBoundaryValuesTop : public Function<dim>
-    {
-    public:
-      RockBoundaryValuesTop () : Function<dim>(dim+1) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-      virtual void vector_value (const Point<dim> &p,
-                                 Vector<double>   &value) const;
-    };
-    template <int dim>
-    double
-    RockBoundaryValuesTop<dim>::value (const Point<dim>  &p,
-                                const unsigned int component) const
-    {
-
-    		if (component == 0) // conditions for top and bottome
-    			return std::sin(p[0]);
-    		else if (component == 1)
-    			return -p[0]*p[1]*p[1];
-    		else if (component == dim)
-        			return p[0]*p[1];
-      return 0.0;
-    }
-
-    template <int dim>
-    void
-    RockBoundaryValuesTop<dim>::vector_value (const Point<dim> &p,
-                                       Vector<double>   &values) const
-    {
-      for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = RockBoundaryValuesTop<dim>::value (p, c);
-    }
-
-
-    template <int dim>
-    class RockBoundaryValuesBottom : public Function<dim>
-    {
-    public:
-      RockBoundaryValuesBottom () : Function<dim>(dim+1) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-      virtual void vector_value (const Point<dim> &p,
-                                 Vector<double>   &value) const;
-    };
-    template <int dim>
-    double
-    RockBoundaryValuesBottom<dim>::value (const Point<dim>  &p,
-                                const unsigned int component) const
-    {
-
-    		if (component == 0)
-    			return p[0]*0.0; // put in only to omit warning on work computer
-    		else if (component == 1)
-    			return 0.0;
-      return 0.0;
-    }
-
-    template <int dim>
-    void
-    RockBoundaryValuesBottom<dim>::vector_value (const Point<dim> &p,
-                                       Vector<double>   &values) const
-    {
-      for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = RockBoundaryValuesBottom<dim>::value (p, c);
-    }
-
-
-    template <int dim>
-    class RockBoundaryValuesSides : public Function<dim>
-    {
-    public:
-      RockBoundaryValuesSides () : Function<dim>(dim+1) {}
-      virtual double value (const Point<dim>   &p,
-                            const unsigned int  component = 0) const;
-      virtual void vector_value (const Point<dim> &p,
-                                 Vector<double>   &value) const;
-    };
-    template <int dim>
-    double
-    RockBoundaryValuesSides<dim>::value (const Point<dim>  &p,
-                                const unsigned int component) const
-    {
-			if (component == 0)
-			return p[1]*std::sin(p[0]);
-			else if (component == 1)
-			return -p[0]*p[1]*p[1];
-    		if (component == dim)
-    			return p[0]*p[1];
-      return 0.0;
-    }
-
-    template <int dim>
-    void
-    RockBoundaryValuesSides<dim>::vector_value (const Point<dim> &p,
-                                       Vector<double>   &values) const
-    {
-      for (unsigned int c=0; c<this->n_components; ++c)
-        values(c) = RockBoundaryValuesSides<dim>::value (p, c);
-    }
-
-
-
-
     template <int dim>
     class RockRightHandSide : public Function<dim>
     {
@@ -281,11 +176,11 @@ namespace System
     {
 
 		if (component == 0)
-			return (1.0-data::phi)*(-2*p[1]*std::sin(p[0]) - 3*p[1]);
+			return (1.0-data::phi)*0.0;
 		else if (component == 1)
-			return (1.0-data::phi)*(std::cos(p[0]) - 5*p[0]);
+            return (1.0-data::phi)*data::rho_f + data::phi*data::rho_r + data::phi*p[1];
 		else if (component == dim)
-			return (1.0-data::phi)*(p[1]*std::cos(p[0]) - 2*p[0]*p[1]);
+			return (1.0-data::phi)*(p[0]+p[1]);
   return 0.0;
     }
 
@@ -361,6 +256,45 @@ namespace System
         return -2./3*data::rho_f + p[0]*0.0; // last term added to avoid warnings on work comp
     }
 
+    
+    template <int dim>
+    class RockTopValues : public Function<dim>
+    {
+    public:
+        RockTopValues () : Function<dim>(1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    
+    template <int dim>
+    class RockBottomValues : public Function<dim>
+    {
+    public:
+        RockBottomValues () : Function<dim>(1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double RockTopValues<dim>::value (const Point<dim>  &p,
+                                               const unsigned int /*component*/) const
+    {
+    
+        return -1.0*p[1];
+    }
+
+    template <int dim>
+    double RockBottomValues<dim>::value (const Point<dim>  &p,
+                                               const unsigned int /*component*/) const
+    {
+        return -10.0+p[1];
+    }
+
+
+    
     template <int dim>
     void unitz (const std::vector<Point<dim> > &points,
                 std::vector<Tensor<1, dim> >   &values)
@@ -581,7 +515,7 @@ namespace System
     :
     pr_degree (degree),
     rock_fe (FE_Q<dim>(pr_degree+1), dim,
-    		FE_Q<dim>(pr_degree), 1),
+    		FE_Q<dim>(pr_degree+1), 1),
     rock_dof_handler (triangulation),
 
 	pf_degree (degree),
@@ -652,7 +586,7 @@ namespace System
         block_component[dim] = 1;
         DoFRenumbering::component_wise (rock_dof_handler, block_component);
 
-        {
+        
             rock_constraints.clear ();
 
             FEValuesExtractors::Vector velocities(0);
@@ -660,41 +594,36 @@ namespace System
 
             DoFTools::make_hanging_node_constraints (rock_dof_handler,
                                                      rock_constraints);
-
-//            VectorTools::interpolate_boundary_values (rock_dof_handler,
-//                                                      1,
-//                                                      RockBoundaryValuesTop<dim>(),
-//                                                      rock_constraints,
-//                                                      rock_fe.component_mask(velocities));
-
-//            VectorTools::interpolate_boundary_values (rock_dof_handler,
-//                                                      2,
-//                                                      RockBoundaryValuesBottom<dim>(),
-//                                                      rock_constraints,
-//                                                      rock_fe.component_mask(velocities));
-
-//            VectorTools::interpolate_boundary_values (rock_dof_handler,
-//                                                      0,
-//                                                      RockBoundaryValuesSides<dim>(),
-//                                                      rock_constraints,
-//                                                      rock_fe.component_mask(velocities));
-
+            
+            // No normal of normal stress on the sides
             std::set<types::boundary_id> no_normal_flux_boundaries;
             no_normal_flux_boundaries.insert (0);
             VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
                                                              no_normal_flux_boundaries,
                                                              rock_constraints);
-//            std::set<types::boundary_id> no_tangential_flux_boundaries;
-//            no_tangential_flux_boundaries.insert (2);
-//            VectorTools::compute_nonzero_tangential_flux_constraints (rock_dof_handler, 0,
-//                                                             no_tangential_flux_boundaries,
-//															 ZeroFunction<dim>(dim),
-//                                                             rock_constraints);
-
+            
+            std::set<types::boundary_id> bottom_normal_flux_boundaries;
+            bottom_normal_flux_boundaries.insert (2);
+            typename FunctionMap<dim>::type bottom_normal_map;
+            RockBottomValues<dim> bottom_nonzero_normal_stress;
+            bottom_normal_map[2] = &bottom_nonzero_normal_stress;
+            VectorTools::compute_nonzero_normal_flux_constraints (rock_dof_handler, 0,
+                                                                      bottom_normal_flux_boundaries,
+                                                                      bottom_normal_map,
+                                                                      rock_constraints);
 //
+//            std::set<types::boundary_id> top_normal_flux_boundaries;
+//            top_normal_flux_boundaries.insert (1);
+//            typename FunctionMap<dim>::type top_normal_map;
+//            RockTopValues<dim> top_nonzero_normal_stress(1);
+//            top_normal_map[1] = &top_nonzero_normal_stress;
+//            VectorTools::compute_nonzero_normal_flux_constraints (rock_dof_handler, 0,
+//                                                                      top_normal_flux_boundaries,
+//                                                                      top_normal_map,
+//                                                                      rock_constraints);
+        
 
-
-        }
+        
 
 
         rock_constraints.close ();
@@ -913,7 +842,10 @@ namespace System
     	        std::vector<Tensor<2,dim> >          grad_phi_u (dofs_per_cell);
     	        std::vector<double>                  div_phi_u   (dofs_per_cell);
     	        std::vector<double>                  phi_p       (dofs_per_cell);
-
+        
+                std::cout << "Assembling from beginning of system. Timstep number " <<
+                                timestep_number << "." << std::endl;
+        
     	        typename DoFHandler<dim>::active_cell_iterator
     	        cell = rock_dof_handler.begin_active(),
     	        endc = rock_dof_handler.end();
@@ -974,7 +906,6 @@ namespace System
     	                    }
     	                    else
     	                    {
-
     	                    	local_rhs(i) += (grad_phi_values[q]*phi_u[i]
 													 + ((1.0-phi_values[1])*data::rho_r + phi_values[q]*data::rho_f)
 													 * unitz_values[q]*phi_u[i]
@@ -1075,6 +1006,7 @@ namespace System
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 
         const PressureBoundaryValues<dim> pressure_boundary_values;
+        const RockBottomValues<dim>         rockvalues;
         const KInverse<dim>               k_inverse;
         const K<dim>               		  k;
 
@@ -1752,44 +1684,44 @@ namespace System
         assemble_phi_system ();
 
         output_results ();
-        output_phi_results();
-
-        time_step = data::timestep;
-
-        while (time <= data::final_time)
-                {
-                    time += time_step;
-                    ++timestep_number;
-                    std::cout << "   Solving at timstep number "<< timestep_number <<"..." << std::endl;
-
-
-                    assemble_phi_rhs ();
-
-                    phi_mass_matrix.vmult(phi_system_rhs, old_phi_solution);
-                    phi_system_rhs.add(time_step,phi_nontime_rhs);
-
-                    phi_system_matrix.copy_from(phi_mass_matrix);
-                    phi_system_matrix.add(time_step,phi_nontime_matrix);
-
-                    phi_hanging_node_constraints.condense (phi_system_rhs);
-                    phi_hanging_node_constraints.condense (phi_system_matrix);
-
-
-                    solve_phi ();
-                    output_phi_results ();
-                    // error_analysis();
-                    old_phi_solution = phi_solution;
-
-                    assemble_rock_system (); // need old_phi_solution here
-                    solve_rock_system ();
-                    assemble_pf_system ();
-                    solve_fluid_system ();
-
-                    assemble_phi_system ();
-                    output_results ();
-
-
-                }
+//        output_phi_results();
+//
+//        time_step = data::timestep;
+//
+//        while (time <= data::final_time)
+//                {
+//                    time += time_step;
+//                    ++timestep_number;
+//                    std::cout << "   Solving at timstep number "<< timestep_number <<"..." << std::endl;
+//
+//
+//                    assemble_phi_rhs ();
+//
+//                    phi_mass_matrix.vmult(phi_system_rhs, old_phi_solution);
+//                    phi_system_rhs.add(time_step,phi_nontime_rhs);
+//
+//                    phi_system_matrix.copy_from(phi_mass_matrix);
+//                    phi_system_matrix.add(time_step,phi_nontime_matrix);
+//
+//                    phi_hanging_node_constraints.condense (phi_system_rhs);
+//                    phi_hanging_node_constraints.condense (phi_system_matrix);
+//
+//
+//                    solve_phi ();
+//                    output_phi_results ();
+//                    // error_analysis();
+//                    old_phi_solution = phi_solution;
+//
+//                    assemble_rock_system (); // need old_phi_solution here
+//                    solve_rock_system ();
+//                    assemble_pf_system ();
+//                    solve_fluid_system ();
+//
+//                    assemble_phi_system ();
+//                    output_results ();
+//
+//
+//                }
 
         compute_errors ();
 
