@@ -1,22 +1,7 @@
-/* ---------------------------------------------------------------------
+/*
+ * Moving boundary being added to the daes
  *
- * Copyright (C) 2005 - 2015 by the deal.II authors
- *
- * This file is part of the deal.II library.
- *
- * The deal.II library is free software; you can use it, redistribute
- * it, and/or modify it under the terms of the GNU Lesser General
- * Public License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- * The full text of the license can be found in the file LICENSE at
- * the top level of the deal.II distribution.
- *
- * ---------------------------------------------------------------------
- 
- *
- * Author: Wolfgang Bangerth, Texas A&M University, 2005, 2006
  */
-
 
 
 #include <deal.II/base/quadrature_lib.h>
@@ -38,6 +23,7 @@
 #include <deal.II/grid/tria_boundary_lib.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_refinement.h>
+#include <deal.II/grid/grid_out.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_renumbering.h>
@@ -64,7 +50,6 @@
 #include <deal.II/fe/fe_raviart_thomas.h>
 #include <deal.II/numerics/data_postprocessor.h>
 #include <deal.II/base/tensor_function.h>
-
 namespace System
 {
     using namespace dealii;
@@ -84,7 +69,7 @@ namespace System
 
     const int dimension = 2;
     const int problem_degree = 1;
-    const int refinement_level = 4;
+    const int refinement_level = 3;
         
     }
     
@@ -140,13 +125,12 @@ namespace System
         Vector<double>       vf_solution;
         Vector<double>       vf_system_rhs;
         
-        
-        Vector<double>                   incremental_displacement;
-        double       present_time;
-        double       present_timestep;
-        double       end_time;
-        unsigned int timestep_no;
-        
+        double 				present_time;
+        double				present_timestep;
+        double				end_time;
+        double				timestep;
+        unsigned int		timestep_no;
+
     };
     
     
@@ -462,64 +446,6 @@ namespace System
         }
     }
     
-    template <int dim>
-    class IncrementalBoundaryValues :  public Function<dim>
-    {
-    public:
-        IncrementalBoundaryValues (const double present_time,
-                                   const double present_timestep);
-        virtual
-        void
-        vector_value (const Point<dim> &p,
-                      Vector<double>   &values) const;
-        virtual
-        void
-        vector_value_list (const std::vector<Point<dim> > &points,
-                           std::vector<Vector<double> >   &value_list) const;
-    private:
-        const double velocity;
-        const double present_time;
-        const double present_timestep;
-    };
-    
-    
-    template <int dim>
-    IncrementalBoundaryValues<dim>::
-    IncrementalBoundaryValues (const double present_time,
-                               const double present_timestep)
-    :
-    Function<dim> (dim),
-    velocity (.1),
-    present_time (present_time),
-    present_timestep (present_timestep)
-    {}
-    
-    template <int dim>
-    void
-    IncrementalBoundaryValues<dim>::
-    vector_value (const Point<dim> &/*p*/,
-                  Vector<double>   &values) const
-    {
-        Assert (values.size() == dim,
-                ExcDimensionMismatch (values.size(), dim));
-        values = 0;
-        values(2) = -present_timestep * velocity;
-    }
-    
-    template <int dim>
-    void
-    IncrementalBoundaryValues<dim>::
-    vector_value_list (const std::vector<Point<dim> > &points,
-                       std::vector<Vector<double> >   &value_list) const
-    {
-        const unsigned int n_points = points.size();
-        Assert (value_list.size() == n_points,
-                ExcDimensionMismatch (value_list.size(), n_points));
-        for (unsigned int p=0; p<n_points; ++p)
-            IncrementalBoundaryValues<dim>::vector_value (points[p],
-                                                          value_list[p]);
-    }
-    
     
     template <int dim>
     DAE<dim>::DAE (const unsigned int degree)
@@ -619,6 +545,14 @@ namespace System
 
 
 
+//
+//            std::set<types::boundary_id> no_normal_flux_boundaries;
+//            no_normal_flux_boundaries.insert (0);
+//            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
+//                                                             no_normal_flux_boundaries,
+//                                                             rock_constraints);
+//
+
 
         }
 
@@ -675,8 +609,6 @@ namespace System
         rock_system_rhs.block(0).reinit (n_vr);
         rock_system_rhs.block(1).reinit (n_pr);
         rock_system_rhs.collect_sizes ();
-        
-        incremental_displacement.reinit (n_vr);
 	}
 
     template <int dim>
@@ -1138,7 +1070,6 @@ namespace System
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
                      vf_system_rhs(local_dof_indices[i]) += local_rhs(i);
              }
-
         vf_constraints.condense (vf_system_matrix);
         vf_constraints.condense (vf_system_rhs);
         
@@ -1185,6 +1116,7 @@ namespace System
         
     }
     
+
     template <int dim>
     void DAE<dim>::move_mesh ()
     {
@@ -1193,29 +1125,6 @@ namespace System
         std::vector<bool> vertex_touched (triangulation.n_vertices(),
                                           false);
         
-        const FEValuesExtractors::Vector velocities (0);
-        const FEValuesExtractors::Scalar pressure (dim);
-        QGauss<dim>   quadrature_formula(pr_degree+2);
-        FEValues<dim> rock_fe_values (rock_fe, quadrature_formula,
-    	                                 update_values    |
-    	                                 update_quadrature_points  |
-    	                                 update_JxW_values |
-    	                                 update_gradients);
-        
-        const unsigned int   n_q_points      = quadrature_formula.size();
-        
-        std::vector<double> 	  vr_values (n_q_points);
-        
-        
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = rock_dof_handler.begin_active(),
-        endc = rock_dof_handler.end();
-        for (; cell!=endc; ++cell)
-	     	 {
-                 rock_fe_values.reinit(cell);
-                 rock_fe_values[velocities].get_function_values (rock_solution, incremental_displacement);
-            
-             }
 
         
         for (typename DoFHandler<dim>::active_cell_iterator
@@ -1227,9 +1136,11 @@ namespace System
                         vertex_touched[cell->vertex_index(v)] = true;
                         Point<dim> vertex_displacement;
                         for (unsigned int d=0; d<dim; ++d)
-                            vertex_displacement[d]
-                            = vr_values(cell->vertex_dof_index(v,d));
-                        cell->vertex(v) += vertex_displacement;
+                            {vertex_displacement[d]
+                            = rock_solution.block(0)(cell->vertex_dof_index(v,d));
+//                        	std::cout << vertex_displacement[d] << std::endl;
+                            }
+                        cell->vertex(v) += vertex_displacement*timestep;
                     }
     }
     
@@ -1259,45 +1170,7 @@ namespace System
   	  std::cout << "Errors: ||e_pr||_L2 = " << p_l2_error
   	            << ",   ||e_vr||_L2 = " << u_l2_error
   	            << std::endl;
-//
-//        const ComponentSelectFunction<dim>
-//        pressure_mask (dim, dim+1);
-//        const ComponentSelectFunction<dim>
-//        velocity_mask(std::make_pair(0, dim), dim+1);
-//
-//        ExactSolution_pf<dim> exact_pf_solution;
-//        Vector<double> cellwise_errors (triangulation.n_active_cells());
-//
-//        QTrapez<1>     q_trapez;
-//        QIterated<dim> quadrature (q_trapez, pf_degree+2);
-//
-//        VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_pf_solution,
-//                                           cellwise_errors, quadrature,
-//                                           VectorTools::L2_norm,
-//                                           &pressure_mask);
-//        const double pf_l2_error = cellwise_errors.l2_norm();
-//
-//        VectorTools::integrate_difference (pf_dof_handler, pf_solution, exact_pf_solution,
-//                                           cellwise_errors, quadrature,
-//                                           VectorTools::L2_norm,
-//                                           &velocity_mask);
-//        const double u_l2_error = cellwise_errors.l2_norm();
-//
-//
-//        ExactSolution_vf<dim> exact_solution_vf;
-//        Vector<double> cellwise_errors_vf (triangulation.n_active_cells());
-//
-//
-//        VectorTools::integrate_difference (vf_dof_handler, vf_solution, exact_solution_vf,
-//                                           cellwise_errors_vf, quadrature,
-//                                           VectorTools::L2_norm);
-//        const double vf_l2_error = cellwise_errors_vf.l2_norm();
-//
-//        std::cout << "Errors: ||e_pf||_L2 = " << pf_l2_error
-//        << "," << std::endl <<   "        ||e_u||_L2 = " << u_l2_error
-//        << ", " << std::endl <<   "        ||e_vf||_L2 = " << vf_l2_error
-//        << ". " << std::endl;
-        
+
     }
     
     
@@ -1306,52 +1179,60 @@ namespace System
     void DAE<dim>::output_results () const
     {
     	{
-            std::vector<std::string> vr_names (dim, "v_r");
-            vr_names.push_back ("p_r");
+    	            std::vector<std::string> vr_names (dim, "v_r");
+    	            vr_names.push_back ("p_r");
 
-            std::vector<DataComponentInterpretation::DataComponentInterpretation>
-            data_component_interpretation
-            (dim, DataComponentInterpretation::component_is_part_of_vector);
-            data_component_interpretation
-            .push_back (DataComponentInterpretation::component_is_scalar);
+    	            std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    	            data_component_interpretation
+    	            (dim, DataComponentInterpretation::component_is_part_of_vector);
+    	            data_component_interpretation
+    	            .push_back (DataComponentInterpretation::component_is_scalar);
 
-            DataOut<dim> data_out;
-            data_out.attach_dof_handler (rock_dof_handler);
-            data_out.add_data_vector (rock_solution, vr_names,
-                                      DataOut<dim>::type_dof_data,
-                                      data_component_interpretation);
-            data_out.build_patches ();
+    	            DataOut<dim> data_out;
+    	            data_out.attach_dof_handler (rock_dof_handler);
+    	            data_out.add_data_vector (rock_solution, vr_names,
+    	                                      DataOut<dim>::type_dof_data,
+    	                                      data_component_interpretation);
+    	            data_out.build_patches ();
 
-            std::ostringstream filename;
-            filename << "rock_solution"
-            << ".vtk";
+    	            const std::string filename = "rock_solution-"
+    	            + Utilities::int_to_string(timestep_no, 3) +
+    	            ".vtk";
 
-            std::ofstream output (filename.str().c_str());
-            data_out.write_vtk (output);
+    	            std::ofstream output (filename.c_str());
+    	            data_out.write_vtk (output);
 
-    	}
-    	{
-        std::vector<std::string> pf_names (dim, "uf");
-        pf_names.push_back ("p_f");
-        std::vector<DataComponentInterpretation::DataComponentInterpretation>
-        pf_component_interpretation
-        (dim+1, DataComponentInterpretation::component_is_scalar);
-        for (unsigned int i=0; i<dim; ++i)
-            pf_component_interpretation[i]
-            = DataComponentInterpretation::component_is_part_of_vector;
-        DataOut<dim> data_out;
+    	    	}
+    	    	{
+    	        std::vector<std::string> pf_names (dim, "uf");
+    	        pf_names.push_back ("p_f");
+    	        std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    	        pf_component_interpretation
+    	        (dim+1, DataComponentInterpretation::component_is_scalar);
+    	        for (unsigned int i=0; i<dim; ++i)
+    	            pf_component_interpretation[i]
+    	            = DataComponentInterpretation::component_is_part_of_vector;
+    	        DataOut<dim> data_out;
 
-        data_out.add_data_vector (pf_dof_handler, pf_solution,
-                                  pf_names, pf_component_interpretation);
-        data_out.add_data_vector (vf_dof_handler, vf_solution,
-                                  "v_f");
+    	        data_out.add_data_vector (pf_dof_handler, pf_solution,
+    	                                  pf_names, pf_component_interpretation);
+    	        data_out.add_data_vector (vf_dof_handler, vf_solution,
+    	                                  "v_f");
 
-        data_out.build_patches (std::min(pf_degree, vf_degree));
-        std::ostringstream filename;
-        filename << "fluid_solution.vtk";
-        std::ofstream output (filename.str().c_str());
-        data_out.write_vtk (output);
-    	}
+    	        data_out.build_patches ();
+    	            const std::string filename = "fluid_solution-"
+    	            + Utilities::int_to_string(timestep_no, 3) +
+    	            ".vtk";
+    	        std::ofstream output (filename.c_str());
+    	        data_out.write_vtk (output);
+    	    	}
+    	    	{
+    	            std::ofstream out ("grid-"
+    	    	            + Utilities::int_to_string(timestep_no, 3) +
+    	    	            ".eps");
+    	            GridOut grid_out;
+    	            grid_out.write_eps (triangulation, out);
+    	    	}
 
     }
     
@@ -1365,6 +1246,7 @@ namespace System
         present_time = 0;
         present_timestep = 1;
         end_time = 10;
+        timestep = 1e-2;
         timestep_no = 0;
         
         make_grid ();
@@ -1374,12 +1256,23 @@ namespace System
         solve_rock_system ();
         assemble_pf_system ();
         solve_fluid_system ();
-        
+        output_results ();
+        compute_errors ();
+
         move_mesh ();
         
-        compute_errors ();
-        output_results ();
-        
+        while (timestep_no < end_time)
+        {
+        	++timestep_no;
+        	assemble_rock_system ();
+        	solve_rock_system ();
+        	assemble_pf_system ();
+        	solve_fluid_system ();
+        	output_results ();
+        	move_mesh ();
+        }
+
+
     }
 }
 
