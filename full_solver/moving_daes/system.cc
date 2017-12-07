@@ -543,17 +543,6 @@ namespace System
                                                       rock_fe.component_mask(velocities));
 
 
-
-
-//
-//            std::set<types::boundary_id> no_normal_flux_boundaries;
-//            no_normal_flux_boundaries.insert (0);
-//            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
-//                                                             no_normal_flux_boundaries,
-//                                                             rock_constraints);
-//
-
-
         }
 
 
