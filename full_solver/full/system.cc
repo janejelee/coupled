@@ -5,6 +5,8 @@
 	#include <deal.II/base/logstream.h>
 	#include <deal.II/base/function.h>
 	#include <deal.II/base/utilities.h>
+    #include <deal.II/base/convergence_table.h>
+
 	
 	#include <deal.II/lac/block_vector.h>
 	#include <deal.II/lac/full_matrix.h>
@@ -69,7 +71,7 @@
 	
 	const int dimension = 2;
 	const int problem_degree = 1;
-	const int refinement_level = 3;
+	const int refinement_level = 4;
 	
 	const double timestep = 1e-2;
 	const double final_time = 5*timestep;
@@ -106,8 +108,13 @@
 		void solve_T ();
 	
 		void compute_errors () const;
+        void compute_errors_phiT () const;
 		void output_results () const;
 		void output_phiT_results ();
+        void convergence_table_function () const;
+        
+        ConvergenceTable        convergence_table;
+
 		Triangulation<dim>   triangulation;
 	
 		const unsigned int   pr_degree;
@@ -170,76 +177,77 @@
 		double               time;
 		double               time_step;
 		unsigned int         timestep_number;
-	};
-	
+        
+    };
+
+    template <int dim>
+    class RockTopStress : public Function<dim>
+    {
+    public:
+        RockTopStress () : Function<dim>(1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                                const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double RockTopStress<dim>::value (const Point<dim>  &p,
+                                                const unsigned int /*component*/) const
+    {
+        return p[1]*p[1]*p[1]+4*p[1];
+    }
+
+    template <int dim>
+    class RockBottomStress : public Function<dim>
+    {
+    public:
+        RockBottomStress () : Function<dim>(1) {}
+            
+        virtual double value (const Point<dim>   &p,
+                                const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double RockBottomStress<dim>::value (const Point<dim>  &p,
+                                        const unsigned int /*component*/) const
+    {
+        return p[1]*p[1]*p[1]+4*p[1];
+    }
+        
 	template <int dim>
-	class RockBoundaryValues : public Function<dim>
+	class RockInitialRHS : public Function<dim>
 	{
 	public:
-		RockBoundaryValues () : Function<dim>(dim+1) {}
+		RockInitialRHS () : Function<dim>(dim+1) {}
 		virtual double value (const Point<dim>   &p,
 				const unsigned int  component = 0) const;
 		virtual void vector_value (const Point<dim> &p,
 				Vector<double>   &value) const;
 	};
-	template <int dim>
-	double
-	RockBoundaryValues<dim>::value (const Point<dim>  &p,
-			const unsigned int component) const
-			{
-		if (component == 0)
-			return p[1]*std::sin(p[0]);
-		else if (component == 1)
-			return -p[0]*p[1]*p[1];
-		if (component == dim)
-			return p[0]*p[1] + data::pr_constant;
-		return 0.0;
-			}
-	
-	template <int dim>
-	void
-	RockBoundaryValues<dim>::vector_value (const Point<dim> &p,
-			Vector<double>   &values) const
-			{
-		for (unsigned int c=0; c<this->n_components; ++c)
-			values(c) = RockBoundaryValues<dim>::value (p, c);
-			}
-	
-	
-	template <int dim>
-	class RockRightHandSide : public Function<dim>
-	{
-	public:
-		RockRightHandSide () : Function<dim>(dim+1) {}
-		virtual double value (const Point<dim>   &p,
-				const unsigned int  component = 0) const;
-		virtual void vector_value (const Point<dim> &p,
-				Vector<double>   &value) const;
-	};
 	
 	template <int dim>
 	double
-	RockRightHandSide<dim>::value (const Point<dim>  &p,
+	RockInitialRHS<dim>::value (const Point<dim>  &p,
 			const unsigned int component) const
 			{
-	
+	// LOG2
 		if (component == 0)
-			return (-2*p[1]*std::sin(p[0]) - 3*p[1]);
+			return 0;
 		else if (component == 1)
-			return (std::cos(p[0]) - 5*p[0]);
+			return -4-3*p[1]*p[1] + 0.0; //for initial time =0
 		else if (component == dim)
-			return (p[1]*std::cos(p[0]) - 2*p[0]*p[1]);
+			return -2*p[1] + 0.0; //for initial time =0
 		return 0.0;
 			}
 	
 	
 	template <int dim>
 	void
-	RockRightHandSide<dim>::vector_value (const Point<dim> &p,
+	RockInitialRHS<dim>::vector_value (const Point<dim> &p,
 			Vector<double>   &values) const
 			{
 		for (unsigned int c=0; c<this->n_components; ++c)
-			values(c) = RockRightHandSide<dim>::value (p, c);
+			values(c) = RockInitialRHS<dim>::value (p, c);
 			}
 	
 	
@@ -258,9 +266,9 @@
 	RockExactSolution<dim>::vector_value (const Point<dim> &p,
 			Vector<double>   &values) const
 			{
-		values(0) = p[1]*std::sin(p[0]);
-		values(1) = -p[0]*p[1]*p[1];
-		values(2) = p[0]*p[1] + data::pr_constant;
+		values(0) = 0;
+		values(1) = -p[1]*p[1];
+		values(2) = p[1]*p[1]*p[1];
 			}
 	
 	template <int dim>
@@ -303,25 +311,61 @@
 	template <int dim>
 	void
 	ExactSolution_pf<dim>::vector_value (const Point<dim> &p,
-			Vector<double>   &values) const
-			{
+                                            Vector<double>   &values) const
+        {
 		const double permeability = data::perm_const;
 	
-		values(0) = 0.0;
-		values(1) = data::lambda*data::rho_f*(1-p[1]*p[1])*permeability;
-		values(2) = -data::rho_f*(p[1] - (1.0/3.0)*p[1]*p[1]*p[1]);
-			}
+                values(0) = 0.0;
+                values(1) = -data::lambda*permeability*(3*p[1]*p[1]-1.0);
+                values(2) = p[1]*p[1]*p[1]-p[1];
+        }
 	
 	template <int dim>
 	void
 	ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
 			Vector<double>   &values) const
 			{
-		const double lkp = data::lambda*data::perm_const*(1.0/0.7);
-		values(0) = p[1]*std::sin(p[0]);
-		values(1) = -p[0]*p[1]*p[1] -lkp*(data::rho_f-data::rho_f*(1.0-p[1]*p[1]));
+		// const double lkp = data::lambda*data::perm_const*(1.0/0.7);
+		values(0) = 0;
+		values(1) = 1.0-p[1]*p[1];
 			}
-	
+    
+    template <int dim>
+        class ExactSolution_phi : public Function<dim>
+        {
+        public:
+            ExactSolution_phi () : Function<dim>() {}
+            virtual double value (const Point<dim>   &p,
+                                  const unsigned int  component = 0) const;
+        };
+        
+    template <int dim>
+    double ExactSolution_phi<dim>::value (const Point<dim>  &p,
+                                          const unsigned int /*component*/) const
+        {
+            const double time = this->get_time();
+            return  -time*data::gamma*exp(-p[1]);
+            
+        }
+        
+    template <int dim>
+        class ExactSolution_T : public Function<dim>
+        {
+        public:
+            ExactSolution_T () : Function<dim>() {}
+            virtual double value (const Point<dim>   &p,
+                                  const unsigned int  component = 0) const;
+        };
+        
+    template <int dim>
+    double ExactSolution_T<dim>::value (const Point<dim>  &p,
+                                              const unsigned int /*component*/) const
+        {
+            const double time = this->get_time();
+            return  10*p[1] + time;
+            
+        }
+        
 	template <int dim>
 	class Bottom_pf :  public Function<dim>
 	{
@@ -604,22 +648,22 @@
 		return std::cos(PI*p[0])*std::sin(PI*p[1]) + 1;
 			}
 	
-	template <int dim>
-	class ExtraRHSpf : public Function<dim>
-	{
-	public:
-		ExtraRHSpf () : Function<dim>(1) {}
-		virtual double value (const Point<dim>   &p,
-				const unsigned int  component = 0) const;
-	};
-	
-	template <int dim>
-	double ExtraRHSpf<dim>::value (const Point<dim>  &p,
-			const unsigned int /*component*/) const
-			{
-		return 2.0*data::rho_f*data::lambda*data::perm_const*p[1];
-			}
-	
+//	template <int dim>
+//	class ExtraRHSpf : public Function<dim>
+//	{
+//	public:
+//		ExtraRHSpf () : Function<dim>(1) {}
+//		virtual double value (const Point<dim>   &p,
+//				const unsigned int  component = 0) const;
+//	};
+//	
+//	template <int dim>
+//	double ExtraRHSpf<dim>::value (const Point<dim>  &p,
+//			const unsigned int /*component*/) const
+//			{
+//		return 2.0*data::rho_f*data::lambda*data::perm_const*p[1];
+//			}
+//	
 	
 	template <int dim>
 	class ExtraRHSTemp : public Function<dim>
@@ -652,8 +696,9 @@
 		const double time = this->get_time();
 		
 		values(0) = 0;
-		values(1) = -4-3*p[1]*p[1]-5*time*data::gamma*exp(p[1])-5*p[1]*time*data::gamma*exp(p[1]);
-		values(2) = -2*p[1]-time*data::gamma*exp(p[1]);
+        values(1) = time*data::gamma*exp(-p[1])*(5*p[1]-5-data::rho_r+data::rho_f)
+                                -4 -3*p[1]*p[1]-data::rho_r;
+		values(2) = -2*p[1]+ time*data::gamma*exp(-p[1]);
 	}
 	
 	template <int dim>
@@ -669,7 +714,7 @@
 		double ExtraRHSpf<dim>::value (const Point<dim>  &p,
 				const unsigned int /*component*/) const
 		{
-			return 2*p[1]+6*data::lambda*data::perm_const*p[1];
+            return p[1]*(6*data::lambda*data::perm_const - 2.0);
 		}
 	
 	template <int dim>
@@ -686,7 +731,7 @@
 	{
 		const double time = this->get_time();
 		values(0) = 0;
-		values(1) = 1+data::lambda*data::perm_const/(-time*data::gamma*exp(p[1]))*(3*p[1]*p[1]-1+data::rho_f);
+		values(1) = 1+data::lambda*data::perm_const/(-time*data::gamma*exp(-p[1]))*(3*p[1]*p[1]-1+data::rho_f);
 	}
 	
 	
@@ -770,30 +815,31 @@
 	
 		DoFTools::make_hanging_node_constraints (rock_dof_handler,
 				rock_constraints);
-	
-		VectorTools::interpolate_boundary_values (rock_dof_handler,
-				1,
-				RockBoundaryValues<dim>(),
-				rock_constraints,
-				rock_fe.component_mask(velocities));
-	
-		VectorTools::interpolate_boundary_values (rock_dof_handler,
-				2,
-				RockBoundaryValues<dim>(),
-				rock_constraints,
-				rock_fe.component_mask(velocities));
-	
-		VectorTools::interpolate_boundary_values (rock_dof_handler,
-				0,
-				RockBoundaryValues<dim>(),
-				rock_constraints,
-				rock_fe.component_mask(velocities));
-		//
-		//            std::set<types::boundary_id> no_normal_flux_boundaries;
-		//            no_normal_flux_boundaries.insert (0);
-		//            VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
-		//                                                             no_normal_flux_boundaries,
-		//                                                             rock_constraints);
+// LOG1
+//		VectorTools::interpolate_boundary_values (rock_dof_handler,
+//				1,
+//				RockBoundaryValues<dim>(),
+//				rock_constraints,
+//				rock_fe.component_mask(velocities));
+//	
+//		VectorTools::interpolate_boundary_values (rock_dof_handler,
+//				2,
+//				RockBoundaryValues<dim>(),
+//				rock_constraints,
+//				rock_fe.component_mask(velocities));
+//	
+//		VectorTools::interpolate_boundary_values (rock_dof_handler,
+//				0,
+//				RockBoundaryValues<dim>(),
+//				rock_constraints,
+//				rock_fe.component_mask(velocities));
+        
+		
+        std::set<types::boundary_id> no_normal_flux_boundaries;
+        no_normal_flux_boundaries.insert (0);
+        VectorTools::compute_no_normal_flux_constraints (rock_dof_handler, 0,
+		                                                             no_normal_flux_boundaries,
+		                                                             rock_constraints);
 	
 		rock_constraints.close ();
 	
@@ -997,13 +1043,20 @@
 		std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 	
 		std::vector<double> boundary_values (n_face_q_points);
-		const RockRightHandSide<dim>          right_hand_side;
-		std::vector<Vector<double> >      rhs_values (n_q_points, Vector<double>(dim+1));
+		const RockInitialRHS<dim>          initial_right_hand_side;
+        std::vector<Vector<double> >      initial_rhs_values (n_q_points, Vector<double>(dim+1));
+        const ExtraRHSRock<dim>      		  extraRHS;
+        std::vector<Vector<double> >      extra_rhs_values (n_q_points, Vector<double>(dim+1));
+        
+        const RockTopStress<dim>        topstress;
+        const RockBottomStress<dim>     bottomstress;
+        std::vector<double>             topstress_values (n_face_q_points);
+        std::vector<double>             bottomstress_values (n_face_q_points);
 	
 		const FEValuesExtractors::Vector velocities (0);
 		const FEValuesExtractors::Scalar pressure (dim);
-	
-		std::vector<Tensor<1,dim>>    unitz_values (n_q_points);
+        
+   		std::vector<Tensor<1,dim>>    unitz_values (n_q_points);
 		std::vector<Tensor<1,dim>> 	  vf_values (n_q_points);
 		std::vector<double>			  pf_values (n_q_points);
 		std::vector<double>			  phi_values (n_q_points);
@@ -1016,6 +1069,7 @@
 		std::vector<Tensor<2,dim> >          grad_phi_u (dofs_per_cell);
 		std::vector<double>                  div_phi_u   (dofs_per_cell);
 		std::vector<double>                  phi_p       (dofs_per_cell);
+        
 		std::cout << "Assembling from beginning of system. Timstep number " <<
 										timestep_number << "." << std::endl;
 	
@@ -1036,8 +1090,10 @@
 			local_matrix = 0;
 			local_rhs = 0;
 	
-			right_hand_side.vector_value_list(rock_fe_values.get_quadrature_points(),
-					rhs_values);
+			initial_right_hand_side.vector_value_list(rock_fe_values.get_quadrature_points(),
+					initial_rhs_values);
+            extraRHS.vector_value_list(rock_fe_values.get_quadrature_points(),
+                                              extra_rhs_values);
 			phi_fe_values.get_function_values (phi_solution, phi_values);
 			phi_fe_values.get_function_gradients (phi_solution, grad_phi_values);
 			pf_fe_values[pressure].get_function_values (pf_solution, pf_values);
@@ -1069,18 +1125,67 @@
 					{
 						const unsigned int component_i = rock_fe.system_to_component_index(i).first;
 						local_rhs(i) += rock_fe_values.shape_value(i,q) *
-								(1.0-phi_values[q])*rhs_values[q](component_i) * // changed rhs values in function defn to not include 1-phi as it changes.
+								(initial_rhs_values[q](component_i)
+                                 )*
 								rock_fe_values.JxW(q);
 					}
 					else
 					{
+                        const unsigned int component_i = rock_fe.system_to_component_index(i).first;
+
 						local_rhs(i) += (grad_phi_values[q]*phi_u[i]
-											 + ((1.0-phi_values[1])*data::rho_r + phi_values[q]*data::rho_f)
+											 + ((1.0-phi_values[i])*data::rho_r + phi_values[q]*data::rho_f)
 											* unitz_values[q]*phi_u[i]
 											 - phi_values[q]*phi_p[i]
-											)*
+                                         + extra_rhs_values[q](component_i)*rock_fe_values.shape_value(i,q)
+                                        )*
 						rock_fe_values.JxW(q);
 					}
+                    
+                    for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                        if (cell->face(face_number)->at_boundary()
+                            &&
+                            (cell->face(face_number)->boundary_id() == 1))
+                        {
+                            rock_fe_face_values.reinit (cell, face_number);
+                            
+                            const unsigned int component_i = rock_fe.system_to_component_index(i).first;
+                            topstress.value_list (rock_fe_face_values.get_quadrature_points(),
+                                         topstress_values);
+                            
+                            for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                            {
+
+                                for (unsigned int i=0; i<dofs_per_cell; ++i)
+                                {
+                                    local_rhs(i) += (/*rock_fe_face_values.normal_vector(q_point)*/
+                                                     topstress_values[q_point]*
+                                                                     rock_fe_face_values.shape_value(i,q_point) *
+                                                                     rock_fe_face_values.JxW(q_point));
+                                }
+                            }
+                        }
+                    
+                    for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                            if (cell->face(face_number)->at_boundary()
+                                &&
+                                (cell->face(face_number)->boundary_id() == 2))
+                            {
+                                const unsigned int component_i = rock_fe.system_to_component_index(i).first;
+                                rock_fe_face_values.reinit (cell, face_number);
+                                
+                                bottomstress.value_list (rock_fe_face_values.get_quadrature_points(),
+                                                         bottomstress_values);
+                                
+                                for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                                {
+                                    for (unsigned int i=0; i<dofs_per_cell; ++i)
+                                        local_rhs(i) += (bottomstress_values[q_point]*/*rock_fe_face_values.normal_vector(q_point)[component_i] **/
+                                                                             rock_fe_face_values.shape_value(i,q_point) *
+                                                                             rock_fe_face_values.JxW(q_point));
+                                }
+                            }
+
 				}
 			}
 	
@@ -1102,7 +1207,7 @@
 			std::set< types::boundary_id > boundary_ids;
 			boundary_ids.insert(2);
 	
-			const RockBoundaryValues<dim> values;
+//			const RockBoundaryValues<dim> values;
 	
 			DoFTools::extract_boundary_dofs(rock_dof_handler, ComponentMask(componentVector),
 					selected_dofs, boundary_ids);
@@ -1168,7 +1273,7 @@
 		std::vector<double> pr_face_values (n_face_q_points);
 		std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
 		std::vector<Tensor<2,dim> > k_values (n_q_points);
-		std::vector<double>     	rhs_values (n_q_points);
+		std::vector<double>     	extra_rhs_values (n_q_points);
 	
 		const FEValuesExtractors::Vector velocities (0);
 		const FEValuesExtractors::Scalar pressure (dim);
@@ -1191,7 +1296,7 @@
 			k.value_list (pf_fe_values.get_quadrature_points(),
 					k_values);
 			extraRHS.value_list(pf_fe_values.get_quadrature_points(),
-					rhs_values);
+					extra_rhs_values);
 	
 			vr_fe_values[velocities].get_function_divergences (rock_solution, div_vr_values);
 	
@@ -1215,9 +1320,8 @@
 					}
 	
 					local_rhs(i) += phi_i_p *
-							(div_vr_values[q] 
-										   - div_vr_values[q] +
-										   rhs_values[q]
+							(div_vr_values[q] +
+										   extra_rhs_values[q]
 							)*
 							pf_fe_values.JxW(q);
 				}
@@ -1330,7 +1434,9 @@
 		FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
 		Vector<double>       local_rhs (dofs_per_cell);
 		Vector<double>       local_solution (dofs_per_cell);
-	
+        
+        const ExtraRHSvf<dim> extraRHS;
+        std::vector<Vector<double> >      extra_rhs_values (n_q_points, Vector<double>(dim));
 	
 		std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 	
@@ -1366,6 +1472,8 @@
 			pf_fe_values[pressure].get_function_gradients (pf_solution, grad_pf_values);
 			vr_fe_values[velocities].get_function_values (rock_solution, vr_values);
 			phi_fe_values.get_function_values (phi_solution, phi_values);
+            extraRHS.vector_value_list(vf_fe_values.get_quadrature_points(), extra_rhs_values);
+
 	
 			for (unsigned int i=0; i<dofs_per_cell; ++i)
 			{
@@ -1713,8 +1821,8 @@
 					VectorTools::L2_norm,
 					&velocity_mask);
 			const double u_l2_error = cellwise_errors.l2_norm();
-			std::cout << "Errors: ||e_pr||_L2 = " << p_l2_error
-					<< ",   ||e_vr||_L2 = " << u_l2_error
+			std::cout << "Errors: ||e_pr||_L2  = " << p_l2_error
+            << ",  " << std::endl << "        ||e_vr||_L2  = " << u_l2_error
 					<< std::endl;
 		}
 		{
@@ -1747,12 +1855,64 @@
 					VectorTools::L2_norm);
 			const double vf_l2_error = cellwise_errors_vf.l2_norm();
 	
-			std::cout << "Errors: ||e_pf||_L2 = " << pf_l2_error
-					<< "," << std::endl <<   "        ||e_u||_L2 = " << u_l2_error
-					<< ", " << std::endl <<   "        ||e_vf||_L2 = " << vf_l2_error
+			std::cout << "        ||e_pf||_L2  = " << pf_l2_error
+					<< "," << std::endl <<   "        ||e_u||_L2   = " << u_l2_error
+					<< ", " << std::endl <<   "        ||e_vf||_L2  = " << vf_l2_error
 					<< ". " << std::endl;
 		}
 	}
+        
+        template <int dim>
+        void DAE<dim>::compute_errors_phiT () const
+        {
+            ExactSolution_phi<dim> exact_phi_solution;
+            exact_phi_solution.set_time(time);
+            ExactSolution_T<dim> exact_T_solution;
+            exact_T_solution.set_time(time);
+            
+            Vector<double> cellwise_errors_phi (triangulation.n_active_cells());
+            Vector<double> cellwise_errors_T (triangulation.n_active_cells());
+            
+            const QTrapez<1>     q_trapez;
+            const QIterated<dim> quadrature (q_trapez, pf_degree+2);
+            
+            VectorTools::integrate_difference (phi_dof_handler, phi_solution, exact_phi_solution,
+                                               cellwise_errors_phi, quadrature,
+                                               VectorTools::L2_norm);
+            VectorTools::integrate_difference (T_dof_handler, T_solution, exact_T_solution,
+                                               cellwise_errors_T, quadrature,
+                                               VectorTools::L2_norm);
+            
+            const double phi_L2_error = cellwise_errors_phi.l2_norm();
+            const double T_L2_error = cellwise_errors_T.l2_norm();
+            
+            std::cout << "        ||e_phi||_L2 = " << phi_L2_error << "," << std::endl
+                    << "        ||e_T||_L2   = " << T_L2_error << std::endl;
+            
+        }
+        
+//    template <int dim>
+//        void DAE<dim>::convergence_table_function () const
+//        {
+//            convergence_table.add_value("degree", data::problem_degree);
+//            convergence_table.add_value("refinement level", data::refinement_level );
+//            convergence_table.add_value("L2", phi_error);
+//
+//            convergence_table.set_precision("L2", 4);
+//            convergence_table.set_scientific("L2", true);
+//
+//            convergence_table.set_tex_caption("degree", "\\# degree");
+//            convergence_table.set_tex_caption("refinement level", "\\# refinement level");
+//            convergence_table.set_tex_caption("L2", "L^2-error");
+//
+//            std::string error_filename = "error_phi";
+//            error_filename += ".tex";
+//            std::ofstream error_table_file(error_filename.c_str());
+//            convergence_table.write_tex(error_table_file);
+//            
+//            std::cout << std::endl;
+//            convergence_table.write_text(std::cout);
+//        }
 	
 	template <int dim>
 	void DAE<dim>::output_results () const
@@ -1840,7 +2000,6 @@
 		}
 	}
 	
-	
 	template <int dim>
 	void DAE<dim>::run ()
 	{
@@ -1924,10 +2083,10 @@
 			solve_fluid_system ();
 			output_results ();
 			compute_errors ();
+            compute_errors_phiT ();
 		}
 	}
 }
-	
 	
 	int main ()
 	{
