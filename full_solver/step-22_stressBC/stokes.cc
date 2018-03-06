@@ -1,6 +1,7 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/logstream.h>
 #include <deal.II/base/function.h>
+#include <deal.II/base/tensor_function.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/full_matrix.h>
@@ -35,12 +36,7 @@ namespace Step22
     
     namespace data
     {
-        const double eta = 1.0;
-        const double lambda = 1.0;
-        const double perm_const = 1.0;
-        const double rho_f = 1.0;
-        const double rho_r = 1.0;
-        const double gamma = 1.0;
+       
         const double pr_constant = 0.0;
         
         const double top = 1.0;
@@ -48,15 +44,9 @@ namespace Step22
         const double left = 0.0;
         const double right = PI;
         
-        const int dimension = 2;
-        const int problem_degree = 1;
         const int refinement_level = 4;
         
-        const double timestep = 1e-2;
-        const double final_time = 5*timestep;
-        const double error_time = 13;
     }
-    
     
     template <int dim>
     class StokesProblem
@@ -69,7 +59,8 @@ namespace Step22
         void assemble_system ();
         void solve ();
         void output_results () const;
-        void refine_mesh ();
+        void compute_errors ();
+
         const unsigned int   degree;
         Triangulation<dim>   triangulation;
         FESystem<dim>        fe;
@@ -82,6 +73,7 @@ namespace Step22
         
     };
     
+    // n.(pI-2e(u)) for the top
     template <int dim>
     class RockTopStress : public Function<dim>
     {
@@ -99,6 +91,38 @@ namespace Step22
         values(2) = 0;
     }
     
+    
+    template <int dim>
+    class RockTopStressTensor : public TensorFunction<1,dim>
+    {
+    public:
+        RockTopStressTensor () : TensorFunction<1,dim> () {}
+        virtual Tensor<1,dim> value (const Point<dim> &p) const;
+        virtual void value_list (const std::vector<Point<dim> > &points,
+                                 std::vector<Tensor<1,dim> >    &values) const;
+    };
+    
+    template <int dim>
+    Tensor<1,dim>
+    RockTopStressTensor<dim>::value (const Point<dim> &p) const
+    {
+        Point<dim> value;
+        value[0] = 0;
+        value[1] = -(p[1]*p[1]*p[1] + 4*p[1]);
+        return value;
+    }
+    template <int dim>
+    void
+    RockTopStressTensor<dim>::value_list (const std::vector<Point<dim> > &points,
+                                     std::vector<Tensor<1,dim> >    &values) const
+    {
+        Assert (values.size() == points.size(),
+                ExcDimensionMismatch (values.size(), points.size()));
+        for (unsigned int i=0; i<points.size(); ++i)
+            values[i] = RockTopStressTensor<dim>::value (points[i]);
+    }
+    
+    // n.(pI-2e(u)) for the top
     template <int dim>
     class RockBottomStress : public Function<dim>
     {
@@ -112,10 +136,42 @@ namespace Step22
     RockBottomStress<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
         values(0) = 0;
-        values(1) = -(p[1]*p[1]*p[1] + 4*p[1]);
+        values(1) = (p[1]*p[1]*p[1] + 4*p[1]);
         values(2) = 0;
     }
     
+    template <int dim>
+    class RockBottomStressTensor : public TensorFunction<1,dim>
+    {
+    public:
+        RockBottomStressTensor () : TensorFunction<1,dim> () {}
+        virtual Tensor<1,dim> value (const Point<dim> &p) const;
+        virtual void value_list (const std::vector<Point<dim> > &points,
+                                 std::vector<Tensor<1,dim> >    &values) const;
+        DeclException2 (ExcDimensionMismatch,
+                        unsigned int, unsigned int,
+                        << "The vector has size " << arg1 << " but should have "
+                        << arg2 << " elements.");
+    };
+    template <int dim>
+    Tensor<1,dim>
+    RockBottomStressTensor<dim>::value (const Point<dim> &p) const
+    {
+        Point<dim> value;
+        value[0] = 0;
+        value[1] = -(p[1]*p[1]*p[1] + 4*p[1]);
+        return value;
+    }
+    template <int dim>
+    void
+    RockBottomStressTensor<dim>::value_list (const std::vector<Point<dim> > &points,
+                                          std::vector<Tensor<1,dim> >    &values) const
+    {
+        Assert (values.size() == points.size(),
+                ExcDimensionMismatch (values.size(), points.size()));
+        for (unsigned int i=0; i<points.size(); ++i)
+            values[i] = RockBottomStressTensor<dim>::value (points[i]);
+    }
     
     template <int dim>
     class RockExactSolution : public Function<dim>
@@ -136,6 +192,7 @@ namespace Step22
         values(2) = p[1]*p[1]*p[1];
     }
     
+    // Extra terms you get on the right hand side from manufactured solutions
     template <int dim>
     class ExtraRHSRock : public Function<dim>
     {
@@ -182,17 +239,20 @@ namespace Step22
             
             DoFTools::make_hanging_node_constraints (dof_handler,
                                                      constraints);
-            VectorTools::interpolate_boundary_values (dof_handler,
-                                                      1,
-                                                      RockExactSolution<dim>(),
-                                                      constraints,
-                                                      fe.component_mask(velocities));
-            VectorTools::interpolate_boundary_values (dof_handler,
-                                                      2,
-                                                      RockExactSolution<dim>(),
-                                                      constraints,
-                                                      fe.component_mask(velocities));
+            //            Testing if Dirichlet conditions work: use the following for top boundary 1 and bottom boundary id 2
             
+//            VectorTools::interpolate_boundary_values (dof_handler,
+//                                                      1,
+//                                                      RockExactSolution<dim>(),
+//                                                      constraints,
+//                                                      fe.component_mask(velocities));
+//            VectorTools::interpolate_boundary_values (dof_handler,
+//                                                      2,
+//                                                      RockExactSolution<dim>(),
+//                                                      constraints,
+//                                                      fe.component_mask(velocities));
+            
+            // These are the conditions for the side boundary ids 0 (no flux)
             std::set<types::boundary_id> no_normal_flux_boundaries;
             no_normal_flux_boundaries.insert (0);
             VectorTools::compute_no_normal_flux_constraints (dof_handler, 0,
@@ -213,6 +273,7 @@ namespace Step22
         << dof_handler.n_dofs()
         << " (" << n_u << '+' << n_p << ')'
         << std::endl;
+        
         {
             BlockDynamicSparsityPattern dsp (2,2);
             dsp.block(0,0).reinit (n_u, n_u);
@@ -223,6 +284,7 @@ namespace Step22
             DoFTools::make_sparsity_pattern (dof_handler, dsp, constraints, false);
             sparsity_pattern.copy_from (dsp);
         }
+        
         system_matrix.reinit (sparsity_pattern);
         solution.reinit (2);
         solution.block(0).reinit (n_u);
@@ -233,6 +295,7 @@ namespace Step22
         system_rhs.block(1).reinit (n_p);
         system_rhs.collect_sizes ();
     }
+    
     template <int dim>
     void StokesProblem<dim>::assemble_system ()
     {
@@ -264,8 +327,13 @@ namespace Step22
         
         const RockTopStress<dim>        topstress;
         const RockBottomStress<dim>     bottomstress;
+        const RockTopStressTensor<dim>  topstress_tensor;
+        const RockBottomStressTensor<dim> bottomstress_tensor;
+        
         std::vector<Vector<double> >      topstress_values (n_face_q_points, Vector<double>      (dim+1));
         std::vector<Vector<double> >      bottomstress_values (n_face_q_points, Vector<double>      (dim+1));
+        std::vector<Tensor<1,dim> > topstress_tensorvalues (n_face_q_points);
+        std::vector<Tensor<1,dim> > bottomstress_tensorvalues (n_face_q_points);
         
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
@@ -295,102 +363,119 @@ namespace Step22
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
                     for (unsigned int j=0; j<=i; ++j)
-                    {
+                    { // matrix assembly
                         local_matrix(i,j) += (2 * (symgrad_phi_u[i] * symgrad_phi_u[j])
                                               - div_phi_u[i] * phi_p[j]
                                               - phi_p[i] * div_phi_u[j])
                         * fe_values.JxW(q);
                     }
+                    
                     const unsigned int component_i =
                     fe.system_to_component_index(i).first;
                     
-                    local_rhs(i) += fe_values.shape_value(i,q) *
+                    // Add the extra terms on RHS
+                    local_rhs(i) +=
+                    fe_values.shape_value(i,q) *
                                         rhs_values[q](component_i) *
                                                         fe_values.JxW(q);
                 }
             }
             
-//            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-//                if (cell->face(face_number)->at_boundary()
-//                    &&
-//                    (cell->face(face_number)->boundary_id() == 1))
-//                {
-//                    fe_face_values.reinit (cell, face_number);
-//
-//                    topstress.vector_value_list(fe_face_values.get_quadrature_points(),
-//                                                topstress_values);
-//
-//                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-//                    {
-//
-//                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-//                        {
-//
+            //Neumann Stress conditions on top boundary
+            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                if (cell->face(face_number)->at_boundary()
+                    &&
+                    (cell->face(face_number)->boundary_id() == 1))
+                {
+                    fe_face_values.reinit (cell, face_number);
+
+                    topstress.vector_value_list(fe_face_values.get_quadrature_points(),
+                                                topstress_values);
+                    topstress_tensor.value_list (fe_face_values.get_quadrature_points(),
+                                                topstress_tensorvalues);
+
+                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                    {
+
+                        for (unsigned int i=0; i<dofs_per_cell; ++i)
+                        {
+
+                            local_rhs(i) += (topstress_tensorvalues[q_point] *
+                                             fe_face_values[velocities].value(i,q_point) *
+                                             fe_face_values.JxW(q_point));
+                            
 //                            const unsigned int component_i = fe.system_to_component_index(i).first;
-//
-//                            local_rhs(i) += (
-//                                             topstress_values[q_point](component_i)*
-//                                             fe_face_values.
-//                                             shape_value(i,q_point) *
+//                            local_rhs(i) += (topstress_values[q_point](component_i)*
+//                                             fe_face_values.shape_value(i,q_point) *
 //                                             fe_face_values.JxW(q_point));
-//                        }
-//                    }
-//                }
-//
-//            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-//                if (cell->face(face_number)->at_boundary()
-//                    &&
-//                    (cell->face(face_number)->boundary_id() == 2))
-//                {
-//
-//                    fe_face_values.reinit (cell, face_number);
-//
-//                    bottomstress.vector_value_list(fe_face_values.get_quadrature_points(),
-//                                                   bottomstress_values);
-//
-//                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-//                    {
-//                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-//                        {
+                        }
+                    }
+                }
+            
+            // Neumann Stress conditions on bottom boundary
+            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+                if (cell->face(face_number)->at_boundary()
+                    &&
+                    (cell->face(face_number)->boundary_id() == 2))
+                {
+
+                    fe_face_values.reinit (cell, face_number);
+                    
+                    bottomstress.vector_value_list(fe_face_values.get_quadrature_points(),
+                                                   bottomstress_values);
+                    bottomstress_tensor.value_list (fe_face_values.get_quadrature_points(),
+                                                 bottomstress_tensorvalues);
+
+                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+                    {
+                        for (unsigned int i=0; i<dofs_per_cell; ++i)
+                        {
+                            local_rhs(i) += (bottomstress_tensorvalues[q_point] *
+                                             fe_face_values[velocities].value(i,q_point) *
+                                             fe_face_values.JxW(q_point));
+                            
 //                            const unsigned int component_i = fe.system_to_component_index(i).first;
 //                            local_rhs(i) += (bottomstress_values[q_point](component_i)*
-//                                             fe_face_values.
-//                                             shape_value(i,q_point) *
+//                                             fe_face_values.shape_value(i,q_point) *
 //                                             fe_face_values.JxW(q_point));
-//                        }
-//                    }
-//                }
+                        }
+                    }
+                }
+            
             for (unsigned int i=0; i<dofs_per_cell; ++i)
                 for (unsigned int j=i+1; j<dofs_per_cell; ++j)
                     local_matrix(i,j) = local_matrix(j,i);
+            
             cell->get_dof_indices (local_dof_indices);
             
             constraints.distribute_local_to_global (local_matrix, local_rhs,
                                                     local_dof_indices,
                                                     system_matrix, system_rhs);
         }
-        // Need a condition as Dirichlet conditions as is makes the pressure only determined to a constant
         
-        std::map<types::global_dof_index, double> pr_determination;
-        {
-            types::global_dof_index n_dofs = dof_handler.n_dofs();
-            std::vector<bool> componentVector(dim + 1, false);
-            componentVector[dim] = true;
-            
-            std::vector<bool> selected_dofs(n_dofs);
-            std::set< types::boundary_id > boundary_ids;
-            boundary_ids.insert(2);
-            
-            DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
-                                            selected_dofs, boundary_ids);
-            
-            for (types::global_dof_index i = 0; i < n_dofs; i++)
-            {
-                if (selected_dofs[i]) pr_determination[i] = data::pr_constant;
-            }
-        }
-        MatrixTools::apply_boundary_values(pr_determination,
-                                           system_matrix, solution, system_rhs);
+        
+        // Need a condition if using Dirichlet conditions as it makes the pressure only determined to a constant. uncomment when testing Dirichlet
+//
+//        std::map<types::global_dof_index, double> pr_determination;
+//        {
+//            types::global_dof_index n_dofs = dof_handler.n_dofs();
+//            std::vector<bool> componentVector(dim + 1, false);
+//            componentVector[dim] = true;
+//
+//            std::vector<bool> selected_dofs(n_dofs);
+//            std::set< types::boundary_id > boundary_ids;
+//            boundary_ids.insert(2);
+//
+//            DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
+//                                            selected_dofs, boundary_ids);
+//
+//            for (types::global_dof_index i = 0; i < n_dofs; i++)
+//            {
+//                if (selected_dofs[i]) pr_determination[i] = data::pr_constant;
+//            }
+//        }
+//        MatrixTools::apply_boundary_values(pr_determination,
+//                                           system_matrix, solution, system_rhs);
     }
     
     template <int dim>
@@ -425,24 +510,38 @@ namespace Step22
         std::ofstream output (filename.str().c_str());
         data_out.write_vtk (output);
     }
-    
     template <int dim>
     void
-    StokesProblem<dim>::refine_mesh ()
+    StokesProblem<dim>::compute_errors ()
     {
-        Vector<float> estimated_error_per_cell (triangulation.n_active_cells());
-        FEValuesExtractors::Scalar pressure(dim);
-        KellyErrorEstimator<dim>::estimate (dof_handler,
-                                            QGauss<dim-1>(degree+1),
-                                            typename FunctionMap<dim>::type(),
-                                            solution,
-                                            estimated_error_per_cell,
-                                            fe.component_mask(pressure));
-        GridRefinement::refine_and_coarsen_fixed_number (triangulation,
-                                                         estimated_error_per_cell,
-                                                         0.3, 0.0);
-        triangulation.execute_coarsening_and_refinement ();
+        {
+            const ComponentSelectFunction<dim> pressure_mask (dim, dim+1);
+            const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim), dim+1);
+            RockExactSolution<dim> exact_solution;
+            
+            Vector<double> cellwise_errors (triangulation.n_active_cells());
+            
+            QTrapez<1>     q_trapez;
+            QIterated<dim> quadrature (q_trapez, degree+2);
+            
+            VectorTools::integrate_difference (dof_handler, solution, exact_solution,
+                                               cellwise_errors, quadrature,
+                                               VectorTools::L2_norm,
+                                               &pressure_mask);
+            const double p_l2_error = cellwise_errors.l2_norm();
+            
+            VectorTools::integrate_difference (dof_handler, solution, exact_solution,
+                                               cellwise_errors, quadrature,
+                                               VectorTools::L2_norm,
+                                               &velocity_mask);
+            const double u_l2_error = cellwise_errors.l2_norm();
+            std::cout << "   Errors: ||e_pr||_L2  = " << p_l2_error
+            << ",  " << std::endl << "           ||e_vr||_L2  = " << u_l2_error
+            << std::endl;
+        }
     }
+    
+ 
     
     template <int dim>
     void StokesProblem<dim>::run ()
@@ -479,6 +578,7 @@ namespace Step22
             std::cout << "   Solving..." << std::flush;
             solve ();
             output_results ();
+            compute_errors ();
 
     }
 }
