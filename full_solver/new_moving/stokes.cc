@@ -37,15 +37,21 @@ namespace Step22
     
     namespace data
     {
+        const int refinement_level = 4;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
         const double right = PI;
+        
         const double phi = 0.7;
-        const double timestep = 0.2;
         const double pr_constant = (1-phi)*bottom*bottom*bottom;
         
-        const int refinement_level = 1;
+        const double timestep = 0.2;
+        const double initial_time = 0.0;
+        int timestep_number = 0;
+        int total_timesteps = 1;
+        double present_time = initial_time + timestep*total_timesteps;
+
     }
     using namespace data;
     
@@ -368,7 +374,7 @@ namespace Step22
     void StokesProblem<dim>::print_mesh ()
     {
             std::ofstream out ("grid-"
-                               + Utilities::int_to_string(timestep, 3) +
+                               + Utilities::int_to_string(timestep_number, 3) +
                                ".eps");
             GridOut grid_out;
             grid_out.write_eps (triangulation, out);
@@ -432,18 +438,25 @@ namespace Step22
                     cell->face(f)->set_all_boundary_ids(2);
         
            triangulation.refine_global ( refinement_level);
-        
-            print_mesh ();
-            setup_dofs ();
-            std::cout << "   Assembling..." << std::endl << std::flush;
+       
+        setup_dofs ();
+
+        while (timestep_number < total_timesteps)
+        {
+            std::cout << "   Assembling at timestep number "
+                            << timestep_number << "..." <<  std::endl << std::flush;
             assemble_system_rock ();
-            std::cout << "   Solving..." << std::endl << std::flush;
+            std::cout << "   Solving at timestep number "
+                        << timestep_number << "..." <<  std::endl << std::flush;
             solve_rock ();
             output_results_rock ();
             compute_errors_rock ();
-        
+            
+            print_mesh ();
             move_mesh ();
-
+            
+            ++timestep_number;
+        }
     }
 }
 
