@@ -49,7 +49,7 @@ namespace Step22
         const double timestep = 0.2;
         const double initial_time = 0.0;
         int timestep_number = 0;
-        int total_timesteps = 1;
+        int total_timesteps = 3;
         double present_time = initial_time + timestep*total_timesteps;
 
     }
@@ -63,6 +63,7 @@ namespace Step22
         void run ();
     private:
         void setup_dofs ();
+        void apply_BC_rock ();
         void assemble_system_rock ();
         void solve_rock ();
         void output_results_rock () const;
@@ -142,36 +143,6 @@ namespace Step22
         std::vector<unsigned int> block_component (dim+1,0);
         block_component[dim] = 1;
         DoFRenumbering::component_wise (dof_handler_rock, block_component);
-        {
-            constraints_rock.clear ();
-            
-            FEValuesExtractors::Vector velocities(0);
-            FEValuesExtractors::Scalar pressure (dim);
-            
-            DoFTools::make_hanging_node_constraints (dof_handler_rock,
-                                                     constraints_rock);
-            //            Testing if Dirichlet conditions work: use the following for top boundary 1 and bottom boundary id 2
-            
-            VectorTools::interpolate_boundary_values (dof_handler_rock,
-                                                      1,
-                                                      RockExactSolution<dim>(),
-                                                      constraints_rock,
-                                                      fe_rock.component_mask(velocities));
-            VectorTools::interpolate_boundary_values (dof_handler_rock,
-                                                      2,
-                                                      RockExactSolution<dim>(),
-                                                      constraints_rock,
-                                                      fe_rock.component_mask(velocities));
-            
-            // These are the conditions for the side boundary ids 0 (no flux)
-            std::set<types::boundary_id> no_normal_flux_boundaries;
-            no_normal_flux_boundaries.insert (0);
-            VectorTools::compute_no_normal_flux_constraints (dof_handler_rock, 0,
-                                                             no_normal_flux_boundaries,
-                                                             constraints_rock);
-            
-        }
-        constraints_rock.close ();
         
         std::vector<types::global_dof_index> dofs_per_block (2);
         DoFTools::count_dofs_per_block (dof_handler_rock, dofs_per_block, block_component);
@@ -207,6 +178,38 @@ namespace Step22
         system_rhs_rock.collect_sizes ();
         displacement.reinit(n_u);
     }
+    
+    template <int dim>
+    void StokesProblem<dim>::apply_BC_rock ()
+	{
+    	constraints_rock.clear ();
+    	    	            
+    	FEValuesExtractors::Vector velocities(0);
+    	FEValuesExtractors::Scalar pressure (dim);
+    	    	            
+    	DoFTools::make_hanging_node_constraints (dof_handler_rock,constraints_rock);
+    	    	            
+    	//            Testing if Dirichlet conditions work: use the following for top boundary 1 and bottom boundary id 2
+    	    	            
+    	VectorTools::interpolate_boundary_values (dof_handler_rock,
+    			1,
+				RockExactSolution<dim>(),
+				constraints_rock,
+				fe_rock.component_mask(velocities));
+    	VectorTools::interpolate_boundary_values (dof_handler_rock,
+    			2,
+				RockExactSolution<dim>(),
+				constraints_rock,
+				fe_rock.component_mask(velocities));
+    	    	            
+    	// These are the conditions for the side boundary ids 0 (no flux)
+    	std::set<types::boundary_id> no_normal_flux_boundaries;
+    	no_normal_flux_boundaries.insert (0);
+    	VectorTools::compute_no_normal_flux_constraints (dof_handler_rock, 0,
+    			no_normal_flux_boundaries, constraints_rock);
+    	
+    	constraints_rock.close ();
+	}
     
     template <int dim>
     void StokesProblem<dim>::assemble_system_rock ()
@@ -340,8 +343,7 @@ namespace Step22
                                   data_component_interpretation);
         data_out.build_patches ();
         std::ostringstream filename;
-        filename << "solution_rock"
-        << ".vtk";
+        filename << "solution_rock"+ Utilities::int_to_string(timestep_number, 3) + ".vtk";
         std::ofstream output (filename.str().c_str());
         data_out.write_vtk (output);
     }
@@ -443,6 +445,7 @@ namespace Step22
 
         while (timestep_number < total_timesteps)
         {
+        	apply_BC_rock ();
             std::cout << "   Assembling at timestep number "
                             << timestep_number << "..." <<  std::endl << std::flush;
             assemble_system_rock ();
