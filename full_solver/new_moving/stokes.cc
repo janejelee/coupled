@@ -40,7 +40,9 @@ namespace FullSolver
     
     namespace data
     {
-        const int refinement_level = 5;
+        const unsigned int degree_phi = 1;
+        
+        const int refinement_level = 3;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -51,12 +53,13 @@ namespace FullSolver
         const double rho_f = 1.0;
         const double phi = 0.7;
         const double pr_constant = (1-phi)*bottom*bottom*bottom;
+        const double C = 1;
         
         const double timestep = 0.2;
         const double initial_time = 0.0;
         unsigned int timestep_number = 0;
         unsigned int total_timesteps = 1;
-        double present_time = initial_time + timestep*total_timesteps;
+        double present_time;
     }
     
     using namespace data;
@@ -66,18 +69,22 @@ namespace FullSolver
     {
     public:
         FullMovingMesh (const unsigned int degree_rock, const unsigned int degree_pf, const unsigned int degree_vf);
+        ~FullMovingMesh ();
         void run ();
     private:
         void make_initial_grid ();
         void setup_dofs_rock ();
         void setup_dofs_fluid ();
+        void setup_dofs_phi ();
         void apply_BC_rock ();
-        void apply_BC_fluid ();
         void assemble_system_rock ();
         void assemble_system_pf ();
         void assemble_system_vf ();
+        void assemble_system_phi ();
+        void assemble_rhs_phi ();
         void solve_rock ();
         void solve_fluid ();
+        void solve_phi ();
         void output_results () const;
         void move_mesh ();
         void print_mesh ();
@@ -112,6 +119,18 @@ namespace FullSolver
         Vector<double>			  solution_vf;
         Vector<double>			  system_rhs_vf;
         
+        DoFHandler<dim>           dof_handler_phi;
+        FE_Q<dim>                 fe_phi;
+        ConstraintMatrix          hanging_node_constraints_phi;
+        SparsityPattern           sparsity_pattern_phi;
+        SparseMatrix<double>      system_matrix_phi;
+        SparseMatrix<double>      mass_matrix_phi;
+        SparseMatrix<double>      nontime_matrix_phi;
+        Vector<double>            solution_phi;
+        Vector<double>            old_solution_phi;
+        Vector<double>            system_rhs_phi;
+        Vector<double>            nontime_rhs_phi;
+    
         Vector<double>            displacement;
         
     };
@@ -228,6 +247,24 @@ namespace FullSolver
             return -rho_f*(p[1]-1./3*p[1]*p[1]*p[1]); // last term added to avoid warnings on work comp
         }
     
+    // Use this if you know where the inflow boundaries are and can define them
+    template <int dim>
+    class PhiDiriFunction : public Function<dim>
+    {
+    public:
+        PhiDiriFunction () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double PhiDiriFunction<dim>::value (const Point<dim>  &p,
+                                     const unsigned int /*component*/) const
+    {
+        const double time = this->get_time();
+        return  C * time * p[0]*exp(-p[1]);
+    }
+    
     template <int dim>
     class KInverse : public TensorFunction<2,dim>
     {
@@ -321,14 +358,22 @@ namespace FullSolver
     
     degree_vf (degree_vf),
     fe_vf (FE_Q<dim>(degree_vf), dim),
-    dof_handler_vf (triangulation)
+    dof_handler_vf (triangulation),
+    
+    dof_handler_phi (triangulation),
+    fe_phi (degree_phi)
 
     {}
     
     template <int dim>
+    FullMovingMesh<dim>::~FullMovingMesh ()
+    {
+        dof_handler_phi.clear ();
+    }
+    
+    template <int dim>
     void FullMovingMesh<dim>::make_initial_grid ()
 	{
-        std::cout << degree_vf << std::endl;
         std::vector<unsigned int> subdivisions (dim, 1);
         subdivisions[0] = 4;
         
@@ -464,6 +509,29 @@ namespace FullSolver
                                                   mass_matrix_vf);
 	}
     
+    template <int dim>
+    void FullMovingMesh<dim>::setup_dofs_phi ()
+    {
+        dof_handler_phi.distribute_dofs (fe_phi);
+        hanging_node_constraints_phi.clear ();
+        DoFTools::make_hanging_node_constraints (dof_handler_phi,
+                                                 hanging_node_constraints_phi);
+        hanging_node_constraints_phi.close ();
+        
+        DynamicSparsityPattern dsp(dof_handler_phi.n_dofs(), dof_handler_phi.n_dofs());
+        DoFTools::make_sparsity_pattern(dof_handler_phi,
+                                        dsp, hanging_node_constraints_phi, /*keep_constrained_dofs = */ true);
+        sparsity_pattern_phi.copy_from (dsp);
+        
+        system_matrix_phi.reinit (sparsity_pattern_phi);
+        mass_matrix_phi.reinit (sparsity_pattern_phi);
+        nontime_matrix_phi.reinit (sparsity_pattern_phi);
+        solution_phi.reinit (dof_handler_phi.n_dofs());
+        old_solution_phi.reinit(dof_handler_phi.n_dofs());
+        system_rhs_phi.reinit (dof_handler_phi.n_dofs());
+        nontime_rhs_phi.reinit (dof_handler_phi.n_dofs());
+    }
+    
 
     template <int dim>
     void FullMovingMesh<dim>::apply_BC_rock ()
@@ -496,12 +564,7 @@ namespace FullSolver
     	
     	constraints_rock.close ();
 	}
-    
-    template <int dim>
-    void FullMovingMesh<dim>::apply_BC_fluid ()
-    {
-        
-    }
+
     
     template <int dim>
     void FullMovingMesh<dim>::assemble_system_rock ()
@@ -566,9 +629,12 @@ namespace FullSolver
                     fe_rock.system_to_component_index(i).first;
                     
                     // Add the extra terms on RHS
+                    if (timestep_number==0)
+                    {
                     local_rhs(i) +=  fe_values_rock.shape_value(i,q) *
                     (1- phi)*rhs_values[q](component_i) *
                                                         fe_values_rock.JxW(q);
+                    }
                 }
             }
 
@@ -840,8 +906,6 @@ namespace FullSolver
                  cell->get_dof_indices (local_dof_indices);
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
                  {system_rhs_vf(local_dof_indices[i]) += local_rhs(i);
-//                     std::cout << system_rhs_vf(local_dof_indices[i]) << std::endl;
-                     
                  }
              }
         
@@ -849,6 +913,169 @@ namespace FullSolver
         constraints_vf.condense (system_rhs_vf);
         system_matrix_vf.copy_from(mass_matrix_vf);
         
+    }
+    
+    template <int dim>
+    void FullMovingMesh<dim>::assemble_system_phi ()
+    {
+        
+        system_matrix_phi = 0;
+        nontime_matrix_phi = 0;
+        
+        MatrixCreator::create_mass_matrix(dof_handler_phi,
+                                          QGauss<dim>(degree_phi+2),
+                                          mass_matrix_phi);
+        
+        FullMatrix<double>                   cell_matrix;
+        
+        std::vector<types::global_dof_index> local_dof_indices;
+        
+        QGauss<dim>  quadrature_formula(degree_phi);
+        QGauss<dim-1> face_quadrature_formula(degree_phi);
+        
+        FEValues<dim> fe_values_phi (fe_phi, quadrature_formula,
+                                     update_values    | update_gradients |
+                                     update_quadrature_points  | update_JxW_values);
+        FEFaceValues<dim> fe_face_values_phi (fe_phi, face_quadrature_formula,
+                                          update_values | update_quadrature_points |
+                                          update_JxW_values | update_normal_vectors);
+        FEValues<dim> fe_values_vr (fe_rock, quadrature_formula,
+                                    update_values    | update_gradients |
+                                    update_quadrature_points  | update_JxW_values);
+
+        const unsigned int dofs_per_cell   = fe_phi.dofs_per_cell;
+        const unsigned int n_q_points      = fe_values_phi.get_quadrature().size();
+//        const unsigned int n_face_q_points = fe_face_values_phi.get_quadrature().size();
+        
+        cell_matrix.reinit (dofs_per_cell, dofs_per_cell);
+        local_dof_indices.resize(dofs_per_cell);
+        
+        std::vector<Tensor<1,dim>>       vr_values (n_q_points);
+        
+        const FEValuesExtractors::Vector velocities (0);
+        const FEValuesExtractors::Scalar pressure (dim);
+        
+        typename DoFHandler<dim>::active_cell_iterator
+        cell = dof_handler_phi.begin_active(),
+        endc = dof_handler_phi.end();
+        typename DoFHandler<dim>::active_cell_iterator
+        vr_cell = dof_handler_rock.begin_active();
+        for (; cell!=endc; ++cell, ++vr_cell)
+        {
+            cell_matrix = 0;
+            
+            fe_values_phi.reinit(cell);
+            fe_values_vr.reinit(vr_cell);
+
+            fe_values_vr[velocities].get_function_values (solution_rock, vr_values);
+            
+            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
+                {
+                    // (v_r.grad phi, psi+d*v_r.grad_psi)
+                    for (unsigned int j=0; j<dofs_per_cell; ++j)
+                        cell_matrix(i,j) += ((vr_values[q_point] *
+                                              fe_values_phi.shape_grad(j,q_point)   *
+                                              (fe_values_phi.shape_value(i,q_point)
+                                               //                                               +
+                                               //                                               delta *
+                                               //                                               (advection_directions[q_point] *
+                                               //                                                fe_values.shape_grad(i,q_point))
+                                               )) *
+                                             fe_values_phi.JxW(q_point));
+                }
+            
+            cell->get_dof_indices (local_dof_indices);
+            
+            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
+            {
+                for (unsigned int j=0; j<local_dof_indices.size(); ++j)
+                    nontime_matrix_phi.add (local_dof_indices[i],
+                                        local_dof_indices[j],
+                                        cell_matrix(i,j));
+            }
+        }
+    }
+    
+    template <int dim>
+    void FullMovingMesh<dim>::assemble_rhs_phi ()
+    {
+        system_rhs_phi=0;
+        nontime_rhs_phi=0;
+        
+        Vector<double>                       cell_rhs;
+        Vector<double>                       cell_disp;
+        std::vector<types::global_dof_index> local_dof_indices;
+        
+        QGauss<dim>  quadrature_formula(degree_phi+2);
+        QGauss<dim-1> face_quadrature_formula(degree_phi+2);
+        
+        FEValues<dim> fe_values_phi (fe_phi, quadrature_formula,
+                                 update_values    |  update_gradients |
+                                 update_quadrature_points  |  update_JxW_values);
+        FEFaceValues<dim> fe_face_values_phi (fe_phi, face_quadrature_formula,
+                                          update_values | update_quadrature_points |
+                                          update_JxW_values | update_normal_vectors);
+        FEValues<dim> fe_values_pf (fe_pf, quadrature_formula,
+                                    update_values    |  update_gradients |
+                                    update_quadrature_points  |  update_JxW_values);
+        FEValues<dim> fe_values_rock (fe_rock, quadrature_formula,
+                                    update_values    |  update_gradients |
+                                    update_quadrature_points  |  update_JxW_values);
+ 
+        const unsigned int dofs_per_cell   = fe_phi.dofs_per_cell;
+        const unsigned int n_q_points      = fe_values_phi.get_quadrature().size();
+//        const unsigned int n_face_q_points = fe_face_values_phi.get_quadrature().size();
+        
+        cell_rhs.reinit (dofs_per_cell);
+        cell_disp.reinit (dofs_per_cell);
+        local_dof_indices.resize(dofs_per_cell);
+        
+        const FEValuesExtractors::Vector velocities (0);
+        const FEValuesExtractors::Scalar pressure (dim);
+        std::vector<double>              pr_values (n_q_points);
+        std::vector<double>              pf_values (n_q_points);
+
+        typename DoFHandler<dim>::active_cell_iterator
+        cell = dof_handler_phi.begin_active(),
+        endc = dof_handler_phi.end();
+        typename DoFHandler<dim>::active_cell_iterator
+        rock_cell = dof_handler_rock.begin_active();
+        typename DoFHandler<dim>::active_cell_iterator
+        pf_cell = dof_handler_pf.begin_active();
+        for (; cell!=endc; ++cell, ++rock_cell, ++pf_cell)
+        {
+            cell_rhs = 0;
+            
+            fe_values_phi.reinit (cell);
+            fe_values_pf.reinit (pf_cell);
+            fe_values_rock.reinit (rock_cell);
+            
+            fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
+            fe_values_rock[pressure].get_function_values (solution_rock, pr_values);
+
+            
+            //            const double delta = 0.1 * cell->diameter ();
+            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
+                {
+                    cell_rhs(i) += ((fe_values_phi.shape_value(i,q_point)
+                                     //                                     +
+                                     //                                     delta *
+                                     //                                     (advection_directions[q_point] *
+                                     //                                      fe_values.shape_grad(i,q_point))
+                                     ) *
+                                    (pr_values[q_point]-pf_values[q_point]) *
+                                    fe_values_phi.JxW (q_point));
+                }
+            
+            cell->get_dof_indices (local_dof_indices);
+            
+            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
+            {
+                nontime_rhs_phi(local_dof_indices[i]) += cell_rhs(i);
+            }
+        }
     }
     
     template <int dim>
@@ -876,6 +1103,36 @@ namespace FullSolver
         vf_direct.vmult (solution_vf, system_rhs_vf);
     }
     
+    template <int dim>
+    void FullMovingMesh<dim>::solve_phi ()
+    {
+        mass_matrix_phi.vmult(system_rhs_phi, old_solution_phi);
+        system_rhs_phi.add(timestep,nontime_rhs_phi);
+        
+        system_matrix_phi.copy_from(mass_matrix_phi);
+        system_matrix_phi.add(timestep,nontime_matrix_phi);
+        
+        std::map<types::global_dof_index,double> boundary_values;
+        PhiDiriFunction<dim> phi_boundary_values;
+        phi_boundary_values.set_time(present_time);
+        VectorTools::interpolate_boundary_values (dof_handler_phi,
+                                                  1,
+                                                  phi_boundary_values,
+                                                  boundary_values);
+        MatrixTools::apply_boundary_values (boundary_values,
+                                            system_matrix_phi,
+                                            solution_phi,
+                                            system_rhs_phi);
+        
+        hanging_node_constraints_phi.condense (system_rhs_phi);
+        hanging_node_constraints_phi.condense (system_matrix_phi);
+        
+        SparseDirectUMFPACK  phi_direct;
+        phi_direct.initialize(system_matrix_phi);
+        phi_direct.vmult (solution_phi, system_rhs_phi);
+        
+        hanging_node_constraints_phi.distribute (solution_phi);
+    }
     
     template <int dim>
     void
@@ -923,6 +1180,18 @@ namespace FullSolver
         std::ofstream output_fluid (filename_fluid.c_str());
         data_out_fluid.write_vtk (output_fluid);
         
+        //PHI
+        DataOut<dim> data_out_phi;
+
+        data_out_phi.attach_dof_handler(dof_handler_phi);
+        data_out_phi.add_data_vector(solution_phi, "phi");
+        data_out_phi.build_patches();
+        
+        const std::string filename_phi = "solution_phi-"
+        + Utilities::int_to_string(timestep_number, 3) +
+        ".vtk";
+        std::ofstream output_phi(filename_phi.c_str());
+        data_out_phi.write_vtk(output_phi);
     }
     
     template <int dim>
@@ -1031,9 +1300,12 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::run ()
     {
+        present_time = initial_time;
+        
         make_initial_grid ();
         setup_dofs_rock ();
         setup_dofs_fluid ();
+        setup_dofs_phi ();
 
         while (timestep_number < total_timesteps)
         {
@@ -1041,12 +1313,15 @@ namespace FullSolver
             std::cout << "   Assembling at timestep number "
                             << timestep_number << "..." <<  std::endl << std::flush;
             assemble_system_rock ();
-
             solve_rock ();
             
-            apply_BC_fluid ();
             assemble_system_pf ();
             solve_fluid ();
+            
+            assemble_system_phi ();
+            assemble_rhs_phi ();
+            solve_phi ();
+            
             output_results ();
             compute_errors ();
             
@@ -1054,6 +1329,7 @@ namespace FullSolver
             move_mesh ();
             
             ++timestep_number;
+            present_time += timestep;
         }
     }
 }
