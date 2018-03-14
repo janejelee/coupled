@@ -20,6 +20,7 @@
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/fe_raviart_thomas.h>
@@ -39,13 +40,12 @@ namespace FullSolver
     
     namespace data
     {
-        const int refinement_level = 4;
+        const int refinement_level = 5;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
         const double right = PI;
         
-        const double eta = 1.0;
         const double lambda = 1.0;
         const double perm_const = 1.0;
         const double rho_f = 1.0;
@@ -172,8 +172,8 @@ namespace FullSolver
     void ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
                                              Vector<double>   &values) const
 	{
-            values(0) = 0.5*(p[0]*p[0]+p[1]*p[1]);
-            values(1) = /*(1.0-1.0/phi)**/lambda*perm_const*rho_f*p[1]*p[1] - p[0]*p[1];
+            values(0) = 0.0;
+            values(1) = (-rho_f*(1-p[1]*p[1])) ;
     }
     
     // Extra terms you get on the right hand side from manufactured solutions
@@ -195,6 +195,22 @@ namespace FullSolver
     }
     
     template <int dim>
+    class ExtraRHSpf : public Function<dim>
+    {
+    public:
+        ExtraRHSpf () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double ExtraRHSpf<dim>::value (const Point<dim>   &p,
+                                      const unsigned int) const
+    {
+        return 2*p[1]*(1-phi+lambda*perm_const*rho_f);
+    }
+    
+    template <int dim>
     class PressureBoundaryValues : public Function<dim>
     {
     public:
@@ -209,7 +225,7 @@ namespace FullSolver
                                                    const unsigned int /*component*/) const
         {
             // This is the dirichlet condition for the top
-            return -2./3*rho_f + p[0]*0.0; // last term added to avoid warnings on work comp
+            return -rho_f*(p[1]-1./3*p[1]*p[1]*p[1]); // last term added to avoid warnings on work comp
         }
     
     template <int dim>
@@ -300,10 +316,10 @@ namespace FullSolver
 	
 	degree_pf (degree_pf),
     fe_pf (FE_RaviartThomas<dim>(degree_pf), 1,
-           FE_Q<dim>(degree_pf), 1),
+           FE_DGQ<dim>(degree_pf), 1),
 	dof_handler_pf (triangulation),
     
-    degree_vf (degree_pf+1),
+    degree_vf (degree_vf),
     fe_vf (FE_Q<dim>(degree_vf), dim),
     dof_handler_vf (triangulation)
 
@@ -312,6 +328,7 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::make_initial_grid ()
 	{
+        std::cout << degree_vf << std::endl;
         std::vector<unsigned int> subdivisions (dim, 1);
         subdivisions[0] = 4;
         
@@ -399,12 +416,10 @@ namespace FullSolver
         					n_pf = dofs_per_component[dim],
 							n_vf = dof_handler_vf.n_dofs();
 
-        std::cout           
-		<< "	Number of degrees of freedom in fluid problem: "           
+        std::cout << "	Number of degrees of freedom in fluid problem: "
 		<< dof_handler_pf.n_dofs()            
 		<< " (" << n_u << '+' << n_pf << '+' << n_vf << ')'            
 		<< std::endl;
-
 
         BlockDynamicSparsityPattern dsp_pf(2, 2);                  
         dsp_pf.block(0, 0).reinit (n_u, n_u);
@@ -449,6 +464,7 @@ namespace FullSolver
                                                   mass_matrix_vf);
 	}
     
+
     template <int dim>
     void FullMovingMesh<dim>::apply_BC_rock ()
 	{
@@ -480,6 +496,12 @@ namespace FullSolver
     	
     	constraints_rock.close ();
 	}
+    
+    template <int dim>
+    void FullMovingMesh<dim>::apply_BC_fluid ()
+    {
+        
+    }
     
     template <int dim>
     void FullMovingMesh<dim>::assemble_system_rock ()
@@ -595,6 +617,7 @@ namespace FullSolver
         FEValues<dim> fe_values_pf (fe_pf, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
+        
         FEFaceValues<dim> fe_face_values_pf (fe_pf, face_quadrature_formula,
                                              update_values    | update_normal_vectors |
                                              update_quadrature_points  | update_JxW_values);
@@ -612,11 +635,13 @@ namespace FullSolver
         
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
+        const ExtraRHSpf<dim>             pf_rhs_values;
         const PressureBoundaryValues<dim> pressure_boundary_values;
         const KInverse<dim>               k_inverse;
         const K<dim>               		  k;
         
         std::vector<double> div_vr_values (n_q_points);
+        std::vector<double> extra_pf_rhs (n_q_points);
         std::vector<double> boundary_values (n_face_q_points);
         std::vector<Tensor<2,dim> > k_inverse_values (n_q_points);
         std::vector<Tensor<2,dim> > k_values (n_q_points);
@@ -642,6 +667,7 @@ namespace FullSolver
             k.value_list (fe_values_pf.get_quadrature_points(),
                           k_values);
             fe_values_rock[velocities].get_function_divergences (solution_rock, div_vr_values);
+            pf_rhs_values.value_list (fe_values_pf.get_quadrature_points(), extra_pf_rhs);
 
             for (unsigned int q=0; q<n_q_points; ++q)
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
@@ -663,7 +689,7 @@ namespace FullSolver
                     }
                     
                     local_rhs(i) += phi_i_p *
-                    					div_vr_values[q] *
+                    					(div_vr_values[q] + extra_pf_rhs[q]) *
 										fe_values_pf.JxW(q);
                     // BE CAREFUL HERE ONCE K is not constant or 1 anymore. have taken div of the constants as zero
                 }
@@ -701,7 +727,7 @@ namespace FullSolver
         }
         
         // NOW NEED TO STRONGLY IMPOSE THE FLUX CONDITIONS BOTH ON SIDES AND BOTTOM
-        std::map<types::global_dof_index, double> boundary_values_flux;
+        {std::map<types::global_dof_index, double> boundary_values_flux;
         {
             types::global_dof_index n_dofs = dof_handler_pf.n_dofs();
             std::vector<bool> componentVector(dim + 1, true); // condition is on pressue
@@ -710,18 +736,40 @@ namespace FullSolver
             std::vector<bool> selected_dofs(n_dofs);
             std::set< types::boundary_id > boundary_ids;
             boundary_ids.insert(0);
-            
+
             DoFTools::extract_boundary_dofs(dof_handler_pf, ComponentMask(componentVector),
                                             selected_dofs, boundary_ids);
-            
+
             for (types::global_dof_index i = 0; i < n_dofs; i++) {
                 if (selected_dofs[i]) boundary_values_flux[i] = 0.0; // Side boudaries have flux 0 on pressure
             }
         }
-
-        // Apply the conditions
-        MatrixTools::apply_boundary_values(boundary_values_flux,
-                                           system_matrix_pf, solution_pf, system_rhs_pf);
+            // Apply the conditions
+            MatrixTools::apply_boundary_values(boundary_values_flux,
+                                               system_matrix_pf, solution_pf, system_rhs_pf);
+        }
+//        {
+//            std::map<types::global_dof_index, double> boundary_values_flux;
+//            {
+//                types::global_dof_index n_dofs = dof_handler_pf.n_dofs();
+//                std::vector<bool> componentVector(dim + 1, true); // condition is on pressue
+//                // setting flux value for the sides at 0 ON THE PRESSURE
+//                componentVector[dim] = false;
+//                std::vector<bool> selected_dofs(n_dofs);
+//                std::set< types::boundary_id > boundary_ids;
+//                boundary_ids.insert(2);
+//
+//                DoFTools::extract_boundary_dofs(dof_handler_pf, ComponentMask(componentVector),
+//                                                selected_dofs, boundary_ids);
+//
+//                for (types::global_dof_index i = 0; i < n_dofs; i++) {
+//                    if (selected_dofs[i]) boundary_values_flux[i] = -rho_f; // Side boudaries have flux 0 on pressure
+//                }
+//            }
+//            // Apply the conditions
+//            MatrixTools::apply_boundary_values(boundary_values_flux,
+//                                               system_matrix_pf, solution_pf, system_rhs_pf);
+//        }
         
     }
     
@@ -735,7 +783,6 @@ namespace FullSolver
         FEValues<dim> fe_values_pf (fe_pf, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
-
         FEValues<dim> fe_values_rock (fe_rock, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
@@ -751,6 +798,7 @@ namespace FullSolver
         std::vector<Tensor<1,dim>>     grad_pf_values (n_q_points);
         std::vector<Tensor<1,dim>>     unitz_values (n_q_points);
         std::vector<Tensor<1,dim>> 	  vr_values (n_q_points);
+        std::vector<double>             pf_values (n_q_points);
 	       
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
@@ -774,6 +822,7 @@ namespace FullSolver
                  unitz (fe_values_vf.get_quadrature_points(), unitz_values);
                  fe_values_pf[pressure].get_function_gradients (solution_pf, grad_pf_values);
                  fe_values_rock[velocities].get_function_values (solution_rock, vr_values);
+                 fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
                  
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
                  {
@@ -781,59 +830,31 @@ namespace FullSolver
                      component_i = fe_vf.system_to_component_index(i).first;
                      
                      for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-                         local_rhs(i) +=    (-fe_values_vf.shape_value(i,q_point) *
-                                             lambda*perm_const*/*(1.0/phi)**/ rho_f*
-                                             unitz_values[q_point][component_i] +
-                                             fe_values_vf.shape_value(i,q_point) *
-                                             vr_values[q_point][component_i]  // rock velocity added
-                                             - fe_values_vf.shape_value(i,q_point) *
-                                             lambda*perm_const*/*(1.0/phi)**/ grad_pf_values[q_point][component_i] // minus pressure gradient
-                                             ) *
+                     { local_rhs(i) +=    (
+                                             grad_pf_values[q_point][component_i]
+                                             ) * fe_values_vf.shape_value(i,q_point) *
 											 	 	 fe_values_vf.JxW(q_point);
-                     
+                     }
                  }
                  
                  cell->get_dof_indices (local_dof_indices);
                  for (unsigned int i=0; i<dofs_per_cell; ++i)
-                     for (unsigned int j=0; j<dofs_per_cell; ++j)
-                         system_matrix_vf.add (local_dof_indices[i],
-                                               local_dof_indices[j],
-                                               local_matrix(i,j));
-                 
-                 for (unsigned int i=0; i<dofs_per_cell; ++i)
-                     system_rhs_vf(local_dof_indices[i]) += local_rhs(i);
+                 {system_rhs_vf(local_dof_indices[i]) += local_rhs(i);
+//                     std::cout << system_rhs_vf(local_dof_indices[i]) << std::endl;
+                     
+                 }
              }
         
         constraints_vf.condense (system_matrix_vf);
         constraints_vf.condense (system_rhs_vf);
-        
-        std::map<types::global_dof_index, double> vf_boundary;
-        {
-            types::global_dof_index n_dofs = dof_handler_vf.n_dofs();
-            std::vector<bool> componentVector(dim, true);
-                                  componentVector[0] = false;
-            std::vector<bool> selected_dofs(n_dofs);
-            std::set< types::boundary_id > boundary_ids;
-            boundary_ids.insert(2);
-
-            DoFTools::extract_boundary_dofs(dof_handler_vf, ComponentMask(componentVector),
-                                            selected_dofs, boundary_ids);
-
-            for (types::global_dof_index i = 0; i < n_dofs; i++) {
-                if (selected_dofs[i]) vf_boundary[i] = 00.0;
-            }
-
-        }
-
-
         system_matrix_vf.copy_from(mass_matrix_vf);
-        MatrixTools::apply_boundary_values(vf_boundary,
-                                           system_matrix_vf, solution_vf, system_rhs_vf);
+        
     }
     
     template <int dim>
     void FullMovingMesh<dim>::solve_rock ()
     {
+        std::cout << "   Solving for rock system..." << std::endl;
         SparseDirectUMFPACK  A_direct;
         A_direct.initialize(system_matrix_rock);
         A_direct.vmult (solution_rock, system_rhs_rock);
@@ -841,9 +862,26 @@ namespace FullSolver
     }
     
     template <int dim>
+    void FullMovingMesh<dim>::solve_fluid ()
+    {
+        std::cout << "   Solving for p_f..." << std::endl;
+        SparseDirectUMFPACK  pf_direct;
+        pf_direct.initialize(system_matrix_pf);
+        pf_direct.vmult (solution_pf, system_rhs_pf);
+    
+        assemble_system_vf ();
+        std::cout << "   Solving for v_f..." << std::endl;
+        SparseDirectUMFPACK  vf_direct;
+        vf_direct.initialize(system_matrix_vf);
+        vf_direct.vmult (solution_vf, system_rhs_vf);
+    }
+    
+    
+    template <int dim>
     void
     FullMovingMesh<dim>::output_results ()  const
     {
+        // ROCK
         std::vector<std::string> solution_names (dim, "velocity");
         solution_names.push_back ("pressure");
         std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -851,22 +889,46 @@ namespace FullSolver
         (dim, DataComponentInterpretation::component_is_part_of_vector);
         data_component_interpretation
         .push_back (DataComponentInterpretation::component_is_scalar);
-        DataOut<dim> data_out;
-        data_out.attach_dof_handler (dof_handler_rock);
-        data_out.add_data_vector (solution_rock, solution_names,
+        DataOut<dim> data_out_rock;
+        data_out_rock.attach_dof_handler (dof_handler_rock);
+        data_out_rock.add_data_vector (solution_rock, solution_names,
                                   DataOut<dim>::type_dof_data,
                                   data_component_interpretation);
-        data_out.build_patches ();
-        std::ostringstream filename;
-        filename << "solution_rock"+ Utilities::int_to_string(timestep_number, 3) + ".vtk";
-        std::ofstream output (filename.str().c_str());
-        data_out.write_vtk (output);
+        data_out_rock.build_patches ();
+        std::ostringstream filename_rock;
+        filename_rock << "solution_rock"+ Utilities::int_to_string(timestep_number, 3) + ".vtk";
+        std::ofstream output_rock (filename_rock.str().c_str());
+        data_out_rock.write_vtk (output_rock);
+        
+        //FLUID
+        std::vector<std::string> pf_names (dim, "uf");
+        pf_names.push_back ("p_f");
+        std::vector<DataComponentInterpretation::DataComponentInterpretation>
+        pf_component_interpretation
+        (dim+1, DataComponentInterpretation::component_is_scalar);
+        for (unsigned int i=0; i<dim; ++i)
+            pf_component_interpretation[i]
+            = DataComponentInterpretation::component_is_part_of_vector;
+        DataOut<dim> data_out_fluid;
+        
+        data_out_fluid.add_data_vector (dof_handler_pf, solution_pf,
+                                  pf_names, pf_component_interpretation);
+        data_out_fluid.add_data_vector (dof_handler_vf, solution_vf,
+                                  "v_f");
+        
+        data_out_fluid.build_patches ();
+        const std::string filename_fluid = "solution_fluid-"
+        + Utilities::int_to_string(timestep_number, 3) +
+        ".vtk";
+        std::ofstream output_fluid (filename_fluid.c_str());
+        data_out_fluid.write_vtk (output_fluid);
+        
     }
     
     template <int dim>
     void FullMovingMesh<dim>::move_mesh ()
     {
-        std::cout << "    Moving mesh..." << std::endl;
+        std::cout << "   Moving mesh..." << std::endl;
         
         std::vector<bool> vertex_touched (triangulation.n_vertices(),
                                           false);
@@ -925,9 +987,46 @@ namespace FullSolver
             << ",  " << std::endl << "           ||e_vr||_L2  = " << u_l2_error
             << std::endl;
         }
+        {
+            const ComponentSelectFunction<dim> pressure_mask (dim, dim+1);
+            const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim), dim+1);
+            ExactSolution_pf<dim> exact_solution_pf;
+            
+            Vector<double> cellwise_errors (triangulation.n_active_cells());
+            
+            QTrapez<1>     q_trapez;
+            QIterated<dim> quadrature (q_trapez, degree_pf+2);
+            
+            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf,
+                                               cellwise_errors, quadrature,
+                                               VectorTools::L2_norm,
+                                               &pressure_mask);
+            const double pf_l2_error = cellwise_errors.l2_norm();
+            
+            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf,
+                                               cellwise_errors, quadrature,
+                                               VectorTools::L2_norm,
+                                               &velocity_mask);
+            const double u_l2_error = cellwise_errors.l2_norm();
+            std::cout << "   Errors: ||e_pf||_L2  = " << pf_l2_error
+            << ",  " << std::endl << "           ||e_u||_L2  = " << u_l2_error
+            << std::endl;
+        }
+        {
+            ExactSolution_vf<dim> exact_solution_vf;
+            
+            Vector<float> difference_per_cell (triangulation.n_active_cells());
+            VectorTools::integrate_difference (dof_handler_vf,
+                                               solution_vf,
+                                               exact_solution_vf,
+                                               difference_per_cell,
+                                               QGauss<dim>(3),
+                                               VectorTools::L2_norm);
+            const double vf_l2_error = difference_per_cell.l2_norm();
+            std::cout << "   Errors: ||e_vf||_L2  = " << vf_l2_error
+            << ",  " << std::endl;
+        }
     }
-    
- 
     
     template <int dim>
     void FullMovingMesh<dim>::run ()
@@ -942,12 +1041,12 @@ namespace FullSolver
             std::cout << "   Assembling at timestep number "
                             << timestep_number << "..." <<  std::endl << std::flush;
             assemble_system_rock ();
-            assemble_system_pf ();
-            assemble_system_vf ();
-            
-            std::cout << "   Solving at timestep number "
-                        << timestep_number << "..." <<  std::endl << std::flush;
+
             solve_rock ();
+            
+            apply_BC_fluid ();
+            assemble_system_pf ();
+            solve_fluid ();
             output_results ();
             compute_errors ();
             
