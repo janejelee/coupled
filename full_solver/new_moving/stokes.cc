@@ -55,9 +55,9 @@ namespace FullSolver
         const double lambda = 1.0;
         const double perm_const = 1.0;
         const double rho_f = 1.0;
-        const double phi = 0.7;
-        const double pr_constant = (1-phi)*bottom*bottom*bottom;
-        const double C = 100;
+        const double phi0 = 0.7;
+        const double pr_constant = bottom*bottom*bottom;
+        const double C = 10;
         const double gamma = 1.0;
         
         const double timestep_size = 0.001;
@@ -193,8 +193,8 @@ namespace FullSolver
                                           Vector<double>   &values) const
     {
         values(0) = 0;
-        values(1) = -(1-phi)*p[1]*p[1];
-        values(2) = (1-phi)*p[1]*p[1]*p[1];
+        values(1) = -p[1]*p[1];
+        values(2) = p[1]*p[1]*p[1];
     }
     
     template <int dim>
@@ -215,8 +215,11 @@ namespace FullSolver
     void ExactSolution_vf<dim>::vector_value (const Point<dim> &p,
                                              Vector<double>   &values) const
 	{
-            values(0) = 0.0;
-            values(1) = -(1-phi)*p[1]*p[1] - lambda*perm_const/phi*(rho_f -rho_f*(1-p[1]*p[1]));
+        const double time = this->get_time();
+        double phi = phi0 * exp( - rho_f*C*time*(p[1]-1/3*p[1]*p[1]*p[1]));
+        
+        values(0) = 0.0;
+        values(1) = -p[1]*p[1] - lambda*perm_const/phi*(rho_f -rho_f*(1-p[1]*p[1]));
     }
 
     template <int dim>
@@ -266,9 +269,13 @@ namespace FullSolver
     void
     ExtraRHSRock<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
+        const double time = this->get_time();
+        double phi = phi0 * exp( - rho_f*C*time*(p[1]-1/3*p[1]*p[1]*p[1]));
+        double dphidz = -rho_f*C*time*(1-p[1]*p[1])*phi;
+        
         values(0) = 0;
-        values(1) = (1-phi)*(4.0 + 3*p[1]*p[1]);
-        values(2) = (1-phi)*(2*p[1]);
+        values(1) = dphidz*(4*p[1]+p[1]*p[1]*p[1]) - (1-phi)*(4.0 + 3*p[1]*p[1]);
+        values(2) = dphidz*(p[1]*p[1]) -(1-phi)*(2*p[1]);
     }
     
     template <int dim>
@@ -284,7 +291,7 @@ namespace FullSolver
     double ExtraRHSpf<dim>::value (const Point<dim>   &p,
                                       const unsigned int) const
     {
-        return 2*p[1]*(1-phi+lambda*perm_const*rho_f);
+        return 2*p[1]*(1 + lambda*perm_const*rho_f);
     }
     
     template <int dim>
@@ -383,6 +390,25 @@ namespace FullSolver
                 virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
     };
+    
+    template <int dim>
+    class RockInitialFunction : public Function<dim>
+    {
+    public:
+        RockInitialFunction () : Function<dim>(dim+1) {}
+        virtual void vector_value (const Point<dim> &p, Vector<double>   &value) const;
+    };
+    
+    template <int dim>
+    void
+    RockInitialFunction<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
+	{
+        const double time = this->get_time();
+        double phi = phi0 * exp( - rho_f*C*time*(p[1]-1/3*p[1]*p[1]*p[1]));
+        values(0) = 0;
+        values(1) = (1-phi)*(4.0 + 3*p[1]*p[1]);
+        values(2) = (1-phi)*(2*p[1]);
+    }
     
     template <int dim>
     double PhiInitialFunction<dim>::value (const Point<dim>  &p,
@@ -788,10 +814,10 @@ namespace FullSolver
                 {
                     for (unsigned int j=0; j<=i; ++j)
                     { // matrix assembly
-                        local_matrix(i,j) += (2 * (1-phi_values[q]) *
+                        local_matrix(i,j) += (- 2 * (1-phi_values[q])*
                                               (symgrad_phi_u[i] * symgrad_phi_u[j])
-                                              - (1-phi_values[q])*div_phi_u[i] * phi_p[j]
-                                              - (1-phi_values[q])*phi_p[i] * div_phi_u[j])
+                                              + (1-phi_values[q])*div_phi_u[i] * phi_p[j]
+                                              + (1-phi_values[q])*phi_p[i] * div_phi_u[j])
                                                     * fe_values_rock.JxW(q);
                     }
                     
@@ -802,7 +828,7 @@ namespace FullSolver
                     if (timestep_number==0)
                     {
                     	local_rhs(i) +=  fe_values_rock.shape_value(i,q) *
-                    				(1- phi_values[q])*rhs_values[q](component_i) *
+                    				rhs_values[q](component_i) *
                                                         fe_values_rock.JxW(q);
                     }
                     else
