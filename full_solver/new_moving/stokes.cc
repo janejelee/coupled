@@ -40,7 +40,11 @@ namespace FullSolver
     
     namespace data
     {
+        const unsigned int degree_rock = 1;
+        const unsigned int degree_pf = 1;
+        const unsigned int degree_vf = 1;
         const unsigned int degree_phi = 1;
+        const unsigned int degree_T = 1;
         
         const int refinement_level = 3;
         const double top = 1.0;
@@ -54,8 +58,9 @@ namespace FullSolver
         const double phi = 0.7;
         const double pr_constant = (1-phi)*bottom*bottom*bottom;
         const double C = 1;
+        const double gamma = 1.0;
         
-        const double timestep = 0.2;
+        const double timestep = 0.01;
         const double initial_time = 0.0;
         unsigned int timestep_number = 0;
         unsigned int total_timesteps = 1;
@@ -68,7 +73,7 @@ namespace FullSolver
     class FullMovingMesh
     {
     public:
-        FullMovingMesh (const unsigned int degree_rock, const unsigned int degree_pf, const unsigned int degree_vf);
+        FullMovingMesh (const unsigned int degree_rock, const unsigned int degree_pf, const unsigned int degree_vf, const unsigned int degree_phi, const unsigned int degree_T);
         ~FullMovingMesh ();
         void run ();
     private:
@@ -76,15 +81,19 @@ namespace FullSolver
         void setup_dofs_rock ();
         void setup_dofs_fluid ();
         void setup_dofs_phi ();
+        void setup_dofs_T ();
         void apply_BC_rock ();
         void assemble_system_rock ();
         void assemble_system_pf ();
         void assemble_system_vf ();
         void assemble_system_phi ();
         void assemble_rhs_phi ();
+        void assemble_rhs_T ();
+        void assemble_system_T ();
         void solve_rock ();
         void solve_fluid ();
         void solve_phi ();
+        void solve_T ();
         void output_results () const;
         void move_mesh ();
         void print_mesh ();
@@ -130,6 +139,18 @@ namespace FullSolver
         Vector<double>            old_solution_phi;
         Vector<double>            system_rhs_phi;
         Vector<double>            nontime_rhs_phi;
+        
+        DoFHandler<dim>           dof_handler_T;
+        FE_Q<dim>                 fe_T;
+        ConstraintMatrix          hanging_node_constraints_T;
+        SparsityPattern           sparsity_pattern_T;
+        SparseMatrix<double>      system_matrix_T;
+        SparseMatrix<double>      mass_matrix_T;
+        SparseMatrix<double>      nontime_matrix_T;
+        Vector<double>            solution_T;
+        Vector<double>            old_solution_T;
+        Vector<double>            system_rhs_T;
+        Vector<double>            nontime_rhs_T;
     
         Vector<double>            displacement;
         
@@ -194,6 +215,40 @@ namespace FullSolver
             values(0) = 0.0;
             values(1) = (-rho_f*(1-p[1]*p[1])) ;
     }
+
+    template <int dim>
+    class ExactSolution_phi : public Function<dim>
+    {
+    public:
+        ExactSolution_phi () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double ExactSolution_phi<dim>::value (const Point<dim>  &p,
+                                      const unsigned int /*component*/) const
+    {
+        const double time = this->get_time();
+        return  exp(-p[1]*time);
+    }
+    
+    template <int dim>
+    class ExactSolution_T : public Function<dim>
+    {
+    public:
+        ExactSolution_T () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double ExactSolution_T<dim>::value (const Point<dim>  &p,
+                                          const unsigned int /*component*/) const
+    {
+        const double time = this->get_time();
+        return  time;
+    }
     
     // Extra terms you get on the right hand side from manufactured solutions
     template <int dim>
@@ -230,6 +285,40 @@ namespace FullSolver
     }
     
     template <int dim>
+    class ExtraRHSphi : public Function<dim>
+    {
+    public:
+        ExtraRHSphi () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                        const unsigned int  component = 0) const;
+    };
+                           
+    template <int dim>
+    double ExtraRHSphi<dim>::value (const Point<dim>   &p,
+                            const unsigned int) const
+    {
+        const double time = this->get_time();
+        return (p[1]*p[1]*time-p[1])*exp(-p[1]*time);
+    }
+    template <int dim>
+    class ExtraRHST : public Function<dim>
+    {
+    public:
+        ExtraRHST () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double ExtraRHST<dim>::value (const Point<dim>   &p,
+                                    const unsigned int) const
+    {
+        const double time = this->get_time();
+        return time;
+    }
+                           
+    
+    template <int dim>
     class PressureBoundaryValues : public Function<dim>
     {
     public:
@@ -249,21 +338,71 @@ namespace FullSolver
     
     // Use this if you know where the inflow boundaries are and can define them
     template <int dim>
-    class PhiDiriFunction : public Function<dim>
+    class PhiBoundaryValues : public Function<dim>
     {
     public:
-        PhiDiriFunction () : Function<dim>() {}
+        PhiBoundaryValues () : Function<dim>() {}
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
     };
     
     template <int dim>
-    double PhiDiriFunction<dim>::value (const Point<dim>  &p,
+    double PhiBoundaryValues<dim>::value (const Point<dim>  &p,
                                      const unsigned int /*component*/) const
+    {
+        const double time = this->get_time();
+        return  exp(-p[1]*time);
+    }
+    
+    template <int dim>
+    class TempBoundaryValues : public Function<dim>
+    {
+    public:
+        TempBoundaryValues () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double TempBoundaryValues<dim>::value (const Point<dim>  &p,
+                                          const unsigned int /*component*/) const
     {
         const double time = this->get_time();
         return  C * time * p[0]*exp(-p[1]);
     }
+    
+    template <int dim>
+    class PhiInitialFunction : public Function<dim>
+    {
+        public: PhiInitialFunction () : Function<dim>() {}
+                virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double PhiInitialFunction<dim>::value (const Point<dim>  &p,
+                                           const unsigned int /*component*/) const
+    {
+        
+        return 1.0 + p[0]*0.0;
+    }
+    
+    template <int dim>
+    class TempInitialFunction : public Function<dim>
+    {
+    public: TempInitialFunction () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double TempInitialFunction<dim>::value (const Point<dim>  &p,
+                                           const unsigned int /*component*/) const
+    {
+        
+        return 0.7 + p[0]*0.0;
+    }
+    
     
     template <int dim>
     class KInverse : public TensorFunction<2,dim>
@@ -343,7 +482,7 @@ namespace FullSolver
         }
     
     template <int dim>
-    FullMovingMesh<dim>::FullMovingMesh (const unsigned int degree_rock, const unsigned int degree_pf, const unsigned int degree_vf)
+    FullMovingMesh<dim>::FullMovingMesh (const unsigned int degree_rock, const unsigned int degree_pf, const unsigned int degree_vf, const unsigned int degree_phi, const unsigned int degree_T)
     :
     degree_rock (degree_rock),
 	triangulation (Triangulation<dim>::maximum_smoothing),
@@ -361,7 +500,10 @@ namespace FullSolver
     dof_handler_vf (triangulation),
     
     dof_handler_phi (triangulation),
-    fe_phi (degree_phi)
+    fe_phi (degree_phi),
+    
+    dof_handler_T (triangulation),
+    fe_T (degree_T)
 
     {}
     
@@ -369,6 +511,7 @@ namespace FullSolver
     FullMovingMesh<dim>::~FullMovingMesh ()
     {
         dof_handler_phi.clear ();
+        dof_handler_T.clear ();
     }
     
     template <int dim>
@@ -530,6 +673,12 @@ namespace FullSolver
         old_solution_phi.reinit(dof_handler_phi.n_dofs());
         system_rhs_phi.reinit (dof_handler_phi.n_dofs());
         nontime_rhs_phi.reinit (dof_handler_phi.n_dofs());
+    }
+    
+    template <int dim>
+    void FullMovingMesh<dim>::setup_dofs_T ()
+    {
+        
     }
     
 
@@ -945,7 +1094,6 @@ namespace FullSolver
 
         const unsigned int dofs_per_cell   = fe_phi.dofs_per_cell;
         const unsigned int n_q_points      = fe_values_phi.get_quadrature().size();
-//        const unsigned int n_face_q_points = fe_face_values_phi.get_quadrature().size();
         
         cell_matrix.reinit (dofs_per_cell, dofs_per_cell);
         local_dof_indices.resize(dofs_per_cell);
@@ -1035,6 +1183,9 @@ namespace FullSolver
         const FEValuesExtractors::Scalar pressure (dim);
         std::vector<double>              pr_values (n_q_points);
         std::vector<double>              pf_values (n_q_points);
+        std::vector<double>              extra_phi_values (n_q_points);
+        ExactSolution_phi<dim>           extrarhs;
+        extrarhs.set_time(present_time);
 
         typename DoFHandler<dim>::active_cell_iterator
         cell = dof_handler_phi.begin_active(),
@@ -1053,8 +1204,8 @@ namespace FullSolver
             
             fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
             fe_values_rock[pressure].get_function_values (solution_rock, pr_values);
+            extrarhs.value_list (fe_values_phi.get_quadrature_points(), extra_phi_values);
 
-            
             //            const double delta = 0.1 * cell->diameter ();
             for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
@@ -1065,7 +1216,8 @@ namespace FullSolver
                                      //                                     (advection_directions[q_point] *
                                      //                                      fe_values.shape_grad(i,q_point))
                                      ) *
-                                    (pr_values[q_point]-pf_values[q_point]) *
+                                    (
+                                     extra_phi_values[q_point]) *
                                     fe_values_phi.JxW (q_point));
                 }
             
@@ -1077,6 +1229,13 @@ namespace FullSolver
             }
         }
     }
+    
+    template <int dim>
+    void FullMovingMesh<dim>::assemble_system_T ()
+    {
+        
+    }
+    
     
     template <int dim>
     void FullMovingMesh<dim>::solve_rock ()
@@ -1106,14 +1265,8 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::solve_phi ()
     {
-        mass_matrix_phi.vmult(system_rhs_phi, old_solution_phi);
-        system_rhs_phi.add(timestep,nontime_rhs_phi);
-        
-        system_matrix_phi.copy_from(mass_matrix_phi);
-        system_matrix_phi.add(timestep,nontime_matrix_phi);
-        
         std::map<types::global_dof_index,double> boundary_values;
-        PhiDiriFunction<dim> phi_boundary_values;
+        ExactSolution_phi<dim> phi_boundary_values;
         phi_boundary_values.set_time(present_time);
         VectorTools::interpolate_boundary_values (dof_handler_phi,
                                                   1,
@@ -1124,14 +1277,28 @@ namespace FullSolver
                                             solution_phi,
                                             system_rhs_phi);
         
+        mass_matrix_phi.vmult(system_rhs_phi, old_solution_phi);
+        system_rhs_phi.add(timestep,nontime_rhs_phi);
+        
+        system_matrix_phi.copy_from(mass_matrix_phi);
+        system_matrix_phi.add(timestep,nontime_matrix_phi);
+        
         hanging_node_constraints_phi.condense (system_rhs_phi);
         hanging_node_constraints_phi.condense (system_matrix_phi);
         
+        std::cout << "   Solving for phi..." << std::endl;
         SparseDirectUMFPACK  phi_direct;
         phi_direct.initialize(system_matrix_phi);
         phi_direct.vmult (solution_phi, system_rhs_phi);
         
+        
         hanging_node_constraints_phi.distribute (solution_phi);
+    }
+    
+    template <int dim>
+    void FullMovingMesh<dim>::solve_T ()
+    {
+        
     }
     
     template <int dim>
@@ -1277,7 +1444,7 @@ namespace FullSolver
                                                VectorTools::L2_norm,
                                                &velocity_mask);
             const double u_l2_error = cellwise_errors.l2_norm();
-            std::cout << "   Errors: ||e_pf||_L2  = " << pf_l2_error
+            std::cout << "           ||e_pf||_L2  = " << pf_l2_error
             << ",  " << std::endl << "           ||e_u||_L2  = " << u_l2_error
             << std::endl;
         }
@@ -1292,8 +1459,24 @@ namespace FullSolver
                                                QGauss<dim>(3),
                                                VectorTools::L2_norm);
             const double vf_l2_error = difference_per_cell.l2_norm();
-            std::cout << "   Errors: ||e_vf||_L2  = " << vf_l2_error
+            std::cout << "           ||e_vf||_L2  = " << vf_l2_error
             << ",  " << std::endl;
+        }
+        {
+            ExactSolution_phi<dim> exact_solution_phi;
+            exact_solution_phi.set_time(present_time);
+            
+            Vector<double> cellwise_errors_phi (triangulation.n_active_cells());
+            
+            const QTrapez<1>     q_trapez;
+            const QIterated<dim> quadrature (q_trapez, degree_pf+2);
+            
+            VectorTools::integrate_difference (dof_handler_phi, solution_phi, exact_solution_phi,cellwise_errors_phi, quadrature,
+                                               VectorTools::L2_norm);
+            
+            const double phi_L2_error = cellwise_errors_phi.l2_norm();
+            
+            std::cout << "           ||e_phi||_L2 = " << phi_L2_error << std::endl;
         }
     }
     
@@ -1303,21 +1486,36 @@ namespace FullSolver
         present_time = initial_time;
         
         make_initial_grid ();
+        print_mesh ();
         setup_dofs_rock ();
         setup_dofs_fluid ();
         setup_dofs_phi ();
+        setup_dofs_T ();
+        
+        VectorTools::interpolate(dof_handler_phi, PhiInitialFunction<dim>(), old_solution_phi);
+        solution_phi = old_solution_phi;
+        
+        apply_BC_rock ();
+        std::cout << "   Assembling at timestep number "
+        << timestep_number << "..." <<  std::endl << std::flush;
+        assemble_system_rock ();
+        solve_rock ();
+        
+        assemble_system_pf ();
+        solve_fluid ();
+        
+        output_results ();
+        std::cout << present_time << std::endl;
+        
+        // move_mesh ();
 
         while (timestep_number < total_timesteps)
         {
-        	apply_BC_rock ();
-            std::cout << "   Assembling at timestep number "
-                            << timestep_number << "..." <<  std::endl << std::flush;
-            assemble_system_rock ();
-            solve_rock ();
+            ++timestep_number;
+            present_time += timestep;
             
-            assemble_system_pf ();
-            solve_fluid ();
-            
+            std::cout << present_time << std::endl;
+
             assemble_system_phi ();
             assemble_rhs_phi ();
             solve_phi ();
@@ -1325,11 +1523,21 @@ namespace FullSolver
             output_results ();
             compute_errors ();
             
+            assemble_system_T ();
+            solve_T ();
+            
+//            apply_BC_rock ();
+//            assemble_system_rock ();
+//            solve_rock ();
+//
+//            assemble_system_pf ();
+//            solve_fluid ();
+//
+//            output_results ();
+//            compute_errors ();
+            
             print_mesh ();
             move_mesh ();
-            
-            ++timestep_number;
-            present_time += timestep;
         }
     }
 }
@@ -1340,7 +1548,7 @@ int main ()
     {
         using namespace dealii;
         using namespace FullSolver;
-        FullMovingMesh<2> flow_problem(1, 1, 2);
+        FullMovingMesh<2> flow_problem(degree_rock, degree_pf, degree_vf, degree_phi, degree_T);
         flow_problem.run ();
     }
     catch (std::exception &exc)
