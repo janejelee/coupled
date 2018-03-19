@@ -156,42 +156,7 @@ namespace FullSolver
         unsigned int timestep_number;
         
     };
-  
-    
-    template <int dim>
-    class AdvectionField : public TensorFunction<1,dim>
-    {
-    public:
-        AdvectionField () : TensorFunction<1,dim> () {}
-        virtual Tensor<1,dim> value (const Point<dim> &p) const;
-        virtual void value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<Tensor<1,dim> >    &values) const;
-        DeclException2 (ExcDimensionMismatch,
-                        unsigned int, unsigned int,
-                        << "The vector has size " << arg1 << " but should have "
-                        << arg2 << " elements.");
-    };
-    
-    template <int dim>
-    Tensor<1,dim>
-    AdvectionField<dim>::value (const Point<dim> &p) const
-    {
-        Point<dim> value;
-        value[0] = 0;
-        value[1] = -p[1]*p[1];
-        return value;
-    }
-    
-    template <int dim>
-    void
-    AdvectionField<dim>::value_list (const std::vector<Point<dim> > &points,
-                                     std::vector<Tensor<1,dim> >    &values) const
-    {
-        Assert (values.size() == points.size(),
-                ExcDimensionMismatch (values.size(), points.size()));
-        for (unsigned int i=0; i<points.size(); ++i)
-            values[i] = AdvectionField<dim>::value (points[i]);
-    }
+ 
     
     template <int dim>
     class ExactSolution_rock : public Function<dim>
@@ -328,30 +293,15 @@ namespace FullSolver
     	ExtraRHSphi () : Function<dim>() {}
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
-        virtual void value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<double>            &values,
-                                 const unsigned int              component = 0) const;
     };
     
     template <int dim>
     double
 	ExtraRHSphi<dim>::value (const Point<dim>   &p,
-                               const unsigned int  component) const
+                               const unsigned int) const
     {
 //        const double time = this->get_time();
         return C*p[1];
-    }
-    
-    template <int dim>
-    void
-    ExtraRHSphi<dim>::value_list (const std::vector<Point<dim> > &points,
-                                    std::vector<double>            &values,
-                                    const unsigned int              component) const
-    {
-        Assert (values.size() == points.size(),
-                ExcDimensionMismatch (values.size(), points.size()));
-        for (unsigned int i=0; i<points.size(); ++i)
-            values[i] = ExtraRHSphi<dim>::value (points[i], component);
     }
     
     template <int dim>
@@ -398,9 +348,6 @@ namespace FullSolver
         PhiBoundaryValues () : Function<dim>() {}
         virtual double value (const Point<dim>   &p,
                               const unsigned int  component = 0) const;
-        virtual void value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<double>            &values,
-                                 const unsigned int              component = 0) const;
     };
     
     template <int dim>
@@ -410,18 +357,7 @@ namespace FullSolver
         const double time = this->get_time();
         return data::C*time*p[1];
     }
-    
-    template <int dim>
-    void PhiBoundaryValues<dim>::value_list (const std::vector<Point<dim> > &points,
-                                     std::vector<double>            &values,
-                                     const unsigned int              component) const
-    {
-        Assert (values.size() == points.size(),
-                ExcDimensionMismatch (values.size(), points.size()));
-        for (unsigned int i=0; i<points.size(); ++i)
-            values[i] = PhiBoundaryValues<dim>::value (points[i], component);
-    }
-    
+
     template <int dim>
     class TempBoundaryValues : public Function<dim>
     {
@@ -452,7 +388,7 @@ namespace FullSolver
                                            const unsigned int /*component*/) const
     {
         
-        return 0.0;
+        return 0.0*p[1];
     }
     
     template <int dim>
@@ -741,6 +677,10 @@ namespace FullSolver
         old_solution_phi.reinit(dof_handler_phi.n_dofs());
         system_rhs_phi.reinit (dof_handler_phi.n_dofs());
         nontime_rhs_phi.reinit (dof_handler_phi.n_dofs());
+        
+        MatrixCreator::create_mass_matrix(dof_handler_phi,
+                                          QGauss<dim>(degree_phi+4),
+                                          mass_matrix_phi);
     }
     
     template <int dim>
@@ -1136,11 +1076,7 @@ namespace FullSolver
     {
         system_matrix_phi = 0;
         nontime_matrix_phi = 0;
-        
-        MatrixCreator::create_mass_matrix(dof_handler_phi,
-                                          QGauss<dim>(degree_phi+4),
-                                          mass_matrix_phi);
-        
+
         FullMatrix<double>                   cell_matrix;
         
         std::vector<types::global_dof_index> local_dof_indices;
@@ -1341,7 +1277,7 @@ namespace FullSolver
         system_rhs_phi.add(timestep,nontime_rhs_phi);
 
         system_matrix_phi.copy_from(mass_matrix_phi);
-        system_matrix_phi.add(timestep,nontime_matrix_phi);
+//        system_matrix_phi.add(timestep,nontime_matrix_phi);
         
         
         std::map<types::global_dof_index,double> boundary_values;
@@ -1582,10 +1518,8 @@ namespace FullSolver
         assemble_system_phi ();
         assemble_rhs_phi ();
         
-
-        
-        
         output_results ();
+        compute_errors ();
         timestep = timestep_size;
 
         while (time <= final_time)
@@ -1593,30 +1527,28 @@ namespace FullSolver
             time += timestep;
             ++timestep_number;
             
-//            if (timestep_number > 1)
-//            	assemble_system_phi ();
+            assemble_system_phi ();
             assemble_rhs_phi ();
             solve_phi ();
             
-            output_results ();
-            compute_errors ();
+            old_solution_phi = solution_phi;
             
             assemble_system_T ();  
             solve_T ();
             
-//            apply_BC_rock ();
-//            assemble_system_rock ();
-//            solve_rock ();
-//
-//            assemble_system_pf ();
-//            solve_fluid ();
-//
-//            output_results ();
-//            compute_errors ();
-            old_solution_phi = solution_phi;
+            apply_BC_rock ();
+            assemble_system_rock ();
+            solve_rock ();
 
-            print_mesh ();
-            move_mesh ();
+            assemble_system_pf ();
+            solve_fluid ();
+
+            output_results ();
+            compute_errors ();
+
+
+//            print_mesh ();
+//            move_mesh ();
         }
     }
 }
