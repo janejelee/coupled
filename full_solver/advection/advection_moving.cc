@@ -47,13 +47,13 @@ namespace Step9
         const double bottom = 0.0;
         const double right = 1*PI;
         
-        const double timestep = 1e-5;
+        const double timestep = 0.001;
         const double final_time = 11*timestep;
         const double error_time = 10;
         
-        const double C = 1e5;
+        const double C = 100;
         
-        const int global_refinement_level = 4;
+        const int global_refinement_level = 3;
     }
     
     template <int dim>
@@ -69,8 +69,6 @@ namespace Step9
         void assemble_system ();
         void assemble_rhs ();
         void solve ();
-        void move_mesh ();
-        void displacement ();
         void error_analysis ();
         void output_results ();
         void output ();
@@ -94,9 +92,6 @@ namespace Step9
         double               time_step;
         unsigned int         timestep_number;
         
-        Vector<double>       boundary_displacement;
-        Vector<double>       tmp;
-        SparseMatrix<double> tmp_mass_matrix;
     };
     
     
@@ -173,8 +168,8 @@ namespace Step9
     RightHandSide<dim>::value (const Point<dim>   &p,
                                const unsigned int  component) const
     {
-        const double time = this->get_time();
-        return (1 + p[1]*p[1]*time) *data::C *p[0] *exp(-p[1]);
+//        const double time = this->get_time();
+        return data::C*p[1];
     }
     
     template <int dim>
@@ -207,7 +202,7 @@ namespace Step9
                                 const unsigned int  component) const
     {
         const double time = this->get_time();
-        return data::C * time * p[0]*exp(-p[1]);
+        return data::C*time*p[1];
     }
     
     template <int dim>
@@ -236,7 +231,7 @@ namespace Step9
                                       const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return  data::C * time * p[0]*exp(-p[1]);
+        return  data::C*p[1]*time;
     }
     
     template <int dim>
@@ -270,7 +265,7 @@ namespace Step9
                                         const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return  data::C * time * p[0]*exp(-p[1]);
+        return  data::C*p[1]*time;
     }
     
     template <int dim>
@@ -335,10 +330,6 @@ namespace Step9
         old_solution.reinit(dof_handler.n_dofs());
         system_rhs.reinit (dof_handler.n_dofs());
         nontime_rhs.reinit (dof_handler.n_dofs());
-        
-        boundary_displacement.reinit (dof_handler.n_dofs());
-        tmp.reinit (dof_handler.n_dofs());
-        tmp_mass_matrix.reinit(sparsity_pattern);
     }
     
     template <int dim>
@@ -397,7 +388,7 @@ namespace Step9
                 {
                     // (v_r.grad phi, psi+d*v_r.grad_psi)
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
-                        cell_matrix(i,j) += ((advection_directions[q_point] *
+                        cell_matrix(i,j) += 0*((advection_directions[q_point] *
                                               fe_values.shape_grad(j,q_point)   *
                                               (fe_values.shape_value(i,q_point)
 //                                               +
@@ -427,10 +418,8 @@ namespace Step9
     {
         system_rhs=0;
         nontime_rhs=0;
-        tmp = 0;
         
         Vector<double>                       cell_rhs;
-        Vector<double>                       cell_disp;
         std::vector<types::global_dof_index> local_dof_indices;
         
         QGauss<dim>  quadrature_formula(data::degree+4);
@@ -457,7 +446,6 @@ namespace Step9
         const unsigned int n_face_q_points = fe_face_values.get_quadrature().size();
         
         cell_rhs.reinit (dofs_per_cell);
-        cell_disp.reinit (dofs_per_cell);
         local_dof_indices.resize(dofs_per_cell);
         
         std::vector<double>         rhs_values (n_q_points);
@@ -471,7 +459,6 @@ namespace Step9
         for (; cell!=endc; ++cell)
         {
             cell_rhs = 0;
-            cell_disp = 0;
             
             fe_values.reinit (cell);
             advection_field.value_list (fe_values.get_quadrature_points(),
@@ -491,12 +478,6 @@ namespace Step9
                                      ) *
                                     rhs_values[q_point] *
                                     fe_values.JxW (q_point));
-                    const unsigned int
-                    component_i = fe.system_to_component_index(i).first;
-                    
-                    cell_disp(i) += ((fe_values.shape_value(i,q_point)) *
-                                     advection_directions[q_point][1] *
-                                     fe_values.JxW (q_point));
 //                    std::cout << component_i << std::endl;
                     
                 }
@@ -506,104 +487,9 @@ namespace Step9
             for (unsigned int i=0; i<local_dof_indices.size(); ++i)
             {
                 nontime_rhs(local_dof_indices[i]) += cell_rhs(i);
-                tmp(local_dof_indices[i]) += cell_disp(i);
+                
             }
         }
-    }
-    
-    template <int dim>
-    void AdvectionProblem<dim>::move_mesh ()
-    {
-        std::cout << "    Moving mesh..." << std::endl;
-        
-        std::vector<bool> vertex_touched (triangulation.n_vertices(),
-                                          false);
-        Advection<dim> advection;
-        
-        for (typename DoFHandler<dim>::active_cell_iterator
-             cell = dof_handler.begin_active ();
-             cell != dof_handler.end(); ++cell)
-            for (unsigned int v=0; v<GeometryInfo<dim>::vertices_per_cell; ++v)
-                if (vertex_touched[cell->vertex_index(v)] == false)
-                {
-                    vertex_touched[cell->vertex_index(v)] = true;
-                    Point<dim> vertex_displacement;
-                    for (unsigned int d=0; d<dim; ++d)
-                    {
-                        vertex_displacement[d]
-                        = advection(cell->vertex_dof_index(v,d));
-                    }
-                    cell->vertex(v) += vertex_displacement*time_step;
-                
-                }
-    }
-    
-    template <int dim>
-    void
-    AdvectionProblem<dim>::displacement ()
-    {
-        tmp=0;
-        
-        Vector<double> cell_disp;
-        std::vector<types::global_dof_index> local_dof_indices;
-        
-        QGauss<dim>  quadrature_formula(data::degree+4);
-        FEValues<dim> fe_values (fe, quadrature_formula,
-                                 update_values    |  update_gradients |
-                                 update_quadrature_points  |  update_JxW_values);
-        
-        const AdvectionField<dim> advection;
-        const unsigned int dofs_per_cell = fe.dofs_per_cell;
-        const unsigned int n_q_points      = fe_values.get_quadrature().size();
-        
-        cell_disp.reinit (dofs_per_cell);
-        
-        local_dof_indices.resize(dofs_per_cell);
-        std::vector<Tensor<1, dim> >        advection_values (n_q_points);
-        
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = dof_handler.begin_active(),
-        endc = dof_handler.end();
-        for (; cell!=endc; ++cell)
-        {
-            cell_disp = 0;
-            
-            fe_values.reinit (cell);
-            advection.value_list (fe_values.get_quadrature_points(),
-                                  advection_values);
-            
-            for (unsigned int i=0; i<dofs_per_cell; ++i)
-            {
-                const unsigned int
-                component_i = fe.system_to_component_index(i).first;
-                
-                for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
-                {
-                    cell_disp(i) += ((fe_values.shape_value(i,q_point)) *
-                                     advection_values[q_point][1] *
-                                     fe_values.JxW (q_point));
-                
-//                    std::cout << advection_values[q_point][component_i] << std::endl;
-                }
-            }
-            
-        
-            cell->get_dof_indices (local_dof_indices);
-            
-            for (unsigned int i=0; i<local_dof_indices.size(); ++i)
-            {
-                tmp(local_dof_indices[i]) += cell_disp(i);
-            }
-        }
-        
-        tmp_mass_matrix = 0;
-        
-        SparseDirectUMFPACK  B_direct;
-        tmp_mass_matrix.copy_from(mass_matrix);
-        B_direct.initialize(tmp_mass_matrix);
-        
-        B_direct.vmult (boundary_displacement, tmp);
-        
     }
     
     template <int dim>
@@ -615,11 +501,6 @@ namespace Step9
         A_direct.vmult (solution, system_rhs);
 
         hanging_node_constraints.distribute (solution);
-        
-        SparseDirectUMFPACK  B_direct;
-        tmp_mass_matrix.copy_from(mass_matrix);
-        B_direct.initialize(tmp_mass_matrix);
-        B_direct.vmult (boundary_displacement, tmp);
     }
     
     template <int dim>
@@ -680,21 +561,6 @@ namespace Step9
         data_out.write_vtk(output);
     }
 
-    template <int dim>
-    void AdvectionProblem<dim>::output ()
-    {
-        DataOut<dim> data_out;
-        
-        data_out.attach_dof_handler (dof_handler);
-        data_out.add_data_vector (boundary_displacement, "U");
-        data_out.build_patches ();
-        
-        const std::string filename = "disp-" +
-        Utilities::int_to_string (timestep_number, 3) +
-        ".vtk";
-        std::ofstream output (filename.c_str());
-        data_out.write_vtk (output);
-    }
     
     template <int dim>
     void AdvectionProblem<dim>::run ()
@@ -721,10 +587,6 @@ namespace Step9
                                  old_solution);
         
         solution = old_solution;
-        displacement ();
-        output ();
-        move_mesh();
-
         output_results();
         time_step = data::timestep;
 
