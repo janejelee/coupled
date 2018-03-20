@@ -47,11 +47,12 @@ namespace Step9
         const double bottom = 0.0;
         const double right = 1*PI;
         
-        const double timestep = 0.001;
-        const double final_time = 11*timestep;
-        const double error_time = 10;
+        const double timestep = 0.0001;
+        const double final_time = 1*timestep;
+        const double error_time = 1;
         
-        const double C = 100;
+        const double C = 1e4;
+        
         
         const int global_refinement_level = 3;
     }
@@ -168,8 +169,8 @@ namespace Step9
     RightHandSide<dim>::value (const Point<dim>   &p,
                                const unsigned int  component) const
     {
-//        const double time = this->get_time();
-        return data::C*p[1];
+        const double time = this->get_time();
+        return (data::C+3*p[1]*p[1]*p[1]*p[1]*time*data::C) * exp(-p[1]*p[1]*p[1]);
     }
     
     template <int dim>
@@ -183,40 +184,7 @@ namespace Step9
         for (unsigned int i=0; i<points.size(); ++i)
             values[i] = RightHandSide<dim>::value (points[i], component);
     }
-    
-    template <int dim>
-    class BoundaryValues : public Function<dim>
-    {
-    public:
-        BoundaryValues () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-        virtual void value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<double>            &values,
-                                 const unsigned int              component = 0) const;
-    };
-    
-    template <int dim>
-    double
-    BoundaryValues<dim>::value (const Point<dim>   &p,
-                                const unsigned int  component) const
-    {
-        const double time = this->get_time();
-        return data::C*time*p[1];
-    }
-    
-    template <int dim>
-    void
-    BoundaryValues<dim>::value_list (const std::vector<Point<dim> > &points,
-                                     std::vector<double>            &values,
-                                     const unsigned int              component) const
-    {
-        Assert (values.size() == points.size(),
-                ExcDimensionMismatch (values.size(), points.size()));
-        for (unsigned int i=0; i<points.size(); ++i)
-            values[i] = BoundaryValues<dim>::value (points[i], component);
-    }
-    
+  
     template <int dim>
     class ExactSolution : public Function<dim>
     {
@@ -231,7 +199,7 @@ namespace Step9
                                       const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return  data::C*p[1]*time;
+        return  data::C*time*exp(-p[1]*p[1]*p[1])+0.7;
     }
     
     template <int dim>
@@ -247,25 +215,7 @@ namespace Step9
     double InitialFunction<dim>::value (const Point<dim>  &p,
                                         const unsigned int /*component*/) const
     {
-        return 0;
-    }
-    
-    // Use this if you know where the inflow boundaries are and can define them
-    template <int dim>
-    class DiriFunction : public Function<dim>
-    {
-    public:
-        DiriFunction () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>
-    double DiriFunction<dim>::value (const Point<dim>  &p,
-                                        const unsigned int /*component*/) const
-    {
-        const double time = this->get_time();
-        return  data::C*p[1]*time;
+        return 0.7;
     }
     
     template <int dim>
@@ -330,6 +280,8 @@ namespace Step9
         old_solution.reinit(dof_handler.n_dofs());
         system_rhs.reinit (dof_handler.n_dofs());
         nontime_rhs.reinit (dof_handler.n_dofs());
+        
+        
     }
     
     template <int dim>
@@ -338,11 +290,7 @@ namespace Step9
     {
         system_matrix = 0;
         nontime_matrix = 0;
-        
-        MatrixCreator::create_mass_matrix(dof_handler,
-                                          QGauss<dim>(data::degree+4),
-                                          mass_matrix);
-        
+
         FullMatrix<double>                   cell_matrix;
         
         std::vector<types::global_dof_index> local_dof_indices;
@@ -388,7 +336,7 @@ namespace Step9
                 {
                     // (v_r.grad phi, psi+d*v_r.grad_psi)
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
-                        cell_matrix(i,j) += 0*((advection_directions[q_point] *
+                        cell_matrix(i,j) += ((advection_directions[q_point] *
                                               fe_values.shape_grad(j,q_point)   *
                                               (fe_values.shape_value(i,q_point)
 //                                               +
@@ -436,11 +384,7 @@ namespace Step9
         
         RightHandSide<dim>  right_hand_side;
         right_hand_side.set_time(time);
-        
-        BoundaryValues<dim> boundary_values;
-        boundary_values.set_time(time);
-        
-        
+
         const unsigned int dofs_per_cell   = fe.dofs_per_cell;
         const unsigned int n_q_points      = fe_values.get_quadrature().size();
         const unsigned int n_face_q_points = fe_face_values.get_quadrature().size();
@@ -570,6 +514,17 @@ namespace Step9
         time            = 0;
         
         make_grid_and_dofs();
+        
+    
+        VectorTools::interpolate(dof_handler,
+                                 InitialFunction<dim>(),
+                                 old_solution);
+        
+        
+        MatrixCreator::create_mass_matrix(dof_handler,
+                                          QGauss<dim>(data::degree+4),
+                                          mass_matrix);
+        
         assemble_system ();
         assemble_rhs ();
 //
@@ -580,11 +535,7 @@ namespace Step9
 //        hanging_node_constraints.distribute (solution);
 //        output_results();
 //        error_analysis();
-        
-        
-        VectorTools::interpolate(dof_handler,
-                                 InitialFunction<dim>(),
-                                 old_solution);
+
         
         solution = old_solution;
         output_results();
@@ -599,26 +550,27 @@ namespace Step9
 
             mass_matrix.vmult(system_rhs, old_solution);
             system_rhs.add(time_step,nontime_rhs);
-
+            
             system_matrix.copy_from(mass_matrix);
             system_matrix.add(time_step,nontime_matrix);
             
-            
             std::map<types::global_dof_index,double> boundary_values;
-            DiriFunction<dim> diri_values;
+            ExactSolution<dim> diri_values;
             diri_values.set_time(time);
             VectorTools::interpolate_boundary_values (dof_handler,
                                                       1,
                                                       diri_values,
                                                       boundary_values);
+
+        
+            hanging_node_constraints.condense (system_rhs);
+            hanging_node_constraints.condense (system_matrix);
+
             MatrixTools::apply_boundary_values (boundary_values,
                                                 system_matrix,
                                                 solution,
                                                 system_rhs);
             
-            hanging_node_constraints.condense (system_rhs);
-            hanging_node_constraints.condense (system_matrix);
-
             solve ();
             output_results ();
             // error_analysis();
@@ -657,7 +609,7 @@ int main ()
     {
         Step9::MultithreadInfo::set_thread_limit();
         
-        for (Step9::data::degree = 1; Step9::data::degree<=1; Step9::data::degree++)
+        for (Step9::data::degree = 1; Step9::data::degree<=2; Step9::data::degree++)
         {
             Step9::AdvectionProblem<Step9::data::dimension> advection_problem_2d;
             advection_problem_2d.run ();
