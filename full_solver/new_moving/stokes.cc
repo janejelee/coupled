@@ -46,7 +46,7 @@ namespace FullSolver
         const unsigned int degree_phi = 1;
         const unsigned int degree_T = 1;
         
-        const int refinement_level = 3;
+        const int refinement_level = 4;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -57,12 +57,12 @@ namespace FullSolver
         const double rho_f = 1.0;
         const double phi0 = 0.7;
         const double pr_constant = bottom*bottom*bottom;
-        const double C = 10;
+        const double C = 1000;
         const double gamma = 1.0;
         
         const double timestep_size = 0.001;
         const double final_time = 1*timestep_size;
-        const double total_timesteps = 0;
+        const double total_timesteps = 1;
     }
     
     using namespace data;
@@ -216,7 +216,7 @@ namespace FullSolver
                                              Vector<double>   &values) const
 	{
         const double time = this->get_time();
-        double phi = phi0 * exp( - rho_f*C*time*(p[1]-1/3*p[1]*p[1]*p[1]));
+        double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
         
         values(0) = 0.0;
         values(1) = -p[1]*p[1] - lambda*perm_const/phi*(rho_f -rho_f*(1-p[1]*p[1]));
@@ -236,7 +236,7 @@ namespace FullSolver
                                       const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return  C*p[1]*time + 0.7;
+        return  phi0 + C*time*exp(-p[1]*p[1]*p[1]);
     }
     
     template <int dim>
@@ -270,8 +270,8 @@ namespace FullSolver
     ExtraRHSRock<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
         const double time = this->get_time();
-        double phi = phi0 * exp( - rho_f*C*time*(p[1]-1/3*p[1]*p[1]*p[1]));
-        double dphidz = -rho_f*C*time*(1-p[1]*p[1])*phi;
+        double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
+        double dphidz = -3*p[1]*p[1]*C*time*exp(p[1]*p[1]*p[1]);
         
         values(0) = 0;
         values(1) = dphidz*(4*p[1]+p[1]*p[1]*p[1]) - (1-phi)*(4.0 + 3*p[1]*p[1]);
@@ -308,8 +308,11 @@ namespace FullSolver
 	ExtraRHSphi<dim>::value (const Point<dim>   &p,
                                const unsigned int) const
     {
-//        const double time = this->get_time();
-        return C*p[1];
+        const double time = this->get_time();
+//        double pr = -p[1]*p[1];
+//        double pf = -rho_f*(p[1]*1/3*p[1]*p[1]*p[1]);
+        
+        return (C + 3*p[1]*p[1]*p[1]*p[1]*C*time) * exp(-p[1]*p[1]*p[1]) ;
     }
     
     template <int dim>
@@ -363,7 +366,8 @@ namespace FullSolver
                                      const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return C*time*p[1] + 0.7;
+
+        return phi0 + C*time*exp(-p[1]*p[1]*p[1]);
     }
 
     template <int dim>
@@ -414,8 +418,7 @@ namespace FullSolver
     double PhiInitialFunction<dim>::value (const Point<dim>  &p,
                                            const unsigned int /*component*/) const
     {
-        
-        return 0*p[1] + 0.7;
+        return phi0 + p[1]*0;
     }
     
     template <int dim>
@@ -1179,7 +1182,7 @@ namespace FullSolver
                 {
                     // (v_r.grad phi, psi+d*v_r.grad_psi)
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
-                        cell_matrix(i,j) += 0*((vr_values[q_point] *
+                        cell_matrix(i,j) += ((vr_values[q_point] *
                                 fe_values_phi.shape_grad(j,q_point)   *
                                 (fe_values_phi.shape_value(i,q_point)
 //                                               +
@@ -1279,8 +1282,8 @@ namespace FullSolver
                     		//                                     delta *
                     		//                                     (advection_directions[q_point] *
                     		//                                      fe_values.shape_grad(i,q_point))
-                    		                                     ) *
-                    		                                    extra_phi_values[q_point] *
+                    		                                     ) *( 
+                    		                                    extra_phi_values[q_point]) *
                     		                                    fe_values_phi.JxW (q_point));
                 }
             
@@ -1332,9 +1335,11 @@ namespace FullSolver
         system_rhs_phi.add(timestep,nontime_rhs_phi);
 
         system_matrix_phi.copy_from(mass_matrix_phi);
-//        system_matrix_phi.add(timestep,nontime_matrix_phi);
+        system_matrix_phi.add(timestep,nontime_matrix_phi);
         
-        
+        hanging_node_constraints_phi.condense (system_rhs_phi);
+        hanging_node_constraints_phi.condense (system_matrix_phi);
+
         std::map<types::global_dof_index,double> boundary_values;
         PhiBoundaryValues<dim> phi_boundary_values;
         phi_boundary_values.set_time(time);
@@ -1346,9 +1351,6 @@ namespace FullSolver
                                             system_matrix_phi,
                                             solution_phi,
                                             system_rhs_phi);
-        
-        hanging_node_constraints_phi.condense (system_rhs_phi);
-        hanging_node_constraints_phi.condense (system_matrix_phi);
 
         std::cout << "   Solving for phi..." << std::endl;
         SparseDirectUMFPACK  phi_direct;
@@ -1588,15 +1590,15 @@ namespace FullSolver
             
             old_solution_phi = solution_phi;
             
-            assemble_system_T ();  
-            solve_T ();
-            
-            apply_BC_rock ();
-            assemble_system_rock ();
-            solve_rock ();
-
-            assemble_system_pf ();
-            solve_fluid ();
+//            assemble_system_T ();  
+//            solve_T ();
+//            
+//            apply_BC_rock ();
+//            assemble_system_rock ();
+//            solve_rock ();
+//
+//            assemble_system_pf ();
+//            solve_fluid ();
 
             output_results ();
             compute_errors ();
