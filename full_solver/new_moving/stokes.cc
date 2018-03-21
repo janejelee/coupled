@@ -46,7 +46,7 @@ namespace FullSolver
         const unsigned int degree_phi = 1;
         const unsigned int degree_T = 1;
         
-        const int refinement_level = 3;
+        const int refinement_level = 4;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -55,6 +55,9 @@ namespace FullSolver
         const double lambda = 1.0;
         const double perm_const = 1.0;
         const double rho_f = 1.0;
+        const double rho_r = 1.0;
+        const double c_f = 1.0;
+        const double c_r = 1.0;
         const double phi0 = 0.7;
         const double pr_constant = bottom*bottom*bottom;
         const double C = 100;
@@ -256,7 +259,7 @@ namespace FullSolver
                                           const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return  1-p[1]*p[1]*p[1]*C*time;
+        return  std::sin(p[1])*exp(-C*time);
     }
     
     // Extra terms you get on the right hand side from manufactured solutions
@@ -332,7 +335,7 @@ namespace FullSolver
                                     const unsigned int) const
     {
         const double time = this->get_time();
-        return time;
+        return C*(1/(phi0*Nu)*kappa - 1)*std::sin(p[1])*exp(-C*time);
     }
                            
     
@@ -433,9 +436,24 @@ namespace FullSolver
                                            const unsigned int /*component*/) const
     {
         
-        return 1.0;
+        return std::sin(p[1]);
     }
     
+    template <int dim>
+    class HeatFluxFunction : public Function<dim>
+    {
+    public: HeatFluxFunction () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double HeatFluxFunction<dim>::value (const Point<dim>  &p,
+                                           const unsigned int /*component*/) const
+    {
+        const double time = this->get_time();
+        return -kappa*exp(-C*time)*std::cos(p[1]);
+    }
     
     template <int dim>
     class KInverse : public TensorFunction<2,dim>
@@ -1318,7 +1336,7 @@ namespace FullSolver
                                   update_quadrature_points | update_JxW_values);
         
         std::vector<Tensor<1,dim>> 	   vr_values (n_q_points);
-        std::vector<Tensor<1,dim>>   vf_values (n_q_points);
+        std::vector<Tensor<1,dim>>     vf_values (n_q_points);
         std::vector<double>            phi_values (n_q_points);
 	       
         const FEValuesExtractors::Vector velocities (0);
@@ -1348,16 +1366,16 @@ namespace FullSolver
             
             for (unsigned int q=0; q<n_q_points; ++q)
             {
-            	double coeff = rho_f*c_f*phi_values[q] + rho_r*c_r*(1-phi_values[q]);
-            	double coeff_vel = rho_f*c_f*phi_values[q]*vr_values[q] + rho_r*c_r*(1-phi_values[q])*vf_values[q];
+            	double coeff = 1; //rho_f*c_f*phi_values[q] + rho_r*c_r*(1-phi_values[q]);
+            	double coeff_vel = rho_f*c_f*phi_values[q] + rho_r*c_r*(1-phi_values[q]);
             	
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
-                    	   cell_matrix_nontime(i,j) += ( -coeff_vel*fe_values_T.shape_values(i,q) *
+                    	   cell_matrix_nontime(i,j) += ( /*- 0.0*coeff_vel*fe_values_T.shape_value(i,q)* 
                     			   	   	   	   	   	   fe_values_T.shape_grad(j,q)
-													   	  +
+													   	  + */
                     			   	   	   	   kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
                     			   	   	   	   	   	   	   fe_values_T.shape_grad(j,q)
 														   )*
@@ -1409,13 +1427,13 @@ namespace FullSolver
         FEValues<dim>  fe_values_T (fe_T, quadrature_formula,
                                   update_values   | update_gradients |
                                   update_quadrature_points | update_JxW_values);
-        FEValues<dim>  fe_face_values_phi (fe_phi, face_quadrature_formula,
+        FEFaceValues<dim>  fe_face_values_phi (fe_phi, face_quadrature_formula,
                                   update_values   | update_gradients |
                                   update_quadrature_points | update_JxW_values);        
-        FEValues<dim>  fe_face_values_rock (fe_rock, face_quadrature_formula,
+        FEFaceValues<dim>  fe_face_values_rock (fe_rock, face_quadrature_formula,
                                   update_values   | update_gradients |
                                   update_quadrature_points | update_JxW_values);        
-        FEValues<dim>  fe_face_values_vf (fe_vf, face_quadrature_formula,
+        FEFaceValues<dim>  fe_face_values_vf (fe_vf, face_quadrature_formula,
                                   update_values   | update_gradients |
                                   update_quadrature_points | update_JxW_values);
         FEFaceValues<dim> fe_face_values_T (fe_T, face_quadrature_formula,
@@ -1425,6 +1443,10 @@ namespace FullSolver
         ExtraRHST<dim>   right_hand_side;
         std::vector<double>  rhs_values (n_q_points);
         right_hand_side.set_time(time);
+        
+        HeatFluxFunction<dim> 	heat_flux;
+        heat_flux.set_time(time);
+        std::vector<double> heatflux_values (n_q_points);
         
         typename DoFHandler<dim>::active_cell_iterator
         cell = dof_handler_T.begin_active(),
@@ -1443,6 +1465,8 @@ namespace FullSolver
             
             right_hand_side.value_list (fe_values_T.get_quadrature_points(),
                                         rhs_values);
+            heat_flux.value_list (fe_values_T.get_quadrature_points(),
+                                        heatflux_values);
             
             for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
@@ -1459,14 +1483,14 @@ namespace FullSolver
                 {
                 	fe_face_values_T.reinit (cell, face_number);
                 	fe_face_values_phi.reinit (phi_cell, face_number);
-                	fe_face_values_vr.reinit (vr_cell, face_number);
-                	fe_face_values_vf.reinit (vf_cell, face_numer);
+                	fe_face_values_rock.reinit (vr_cell, face_number);
+                	fe_face_values_vf.reinit (vf_cell, face_number);
                     
                     for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
                     {
 
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            cell_rhs(i) += ( fe_face_values_T.shape_value(i,q_point) *
+                            cell_rhs(i) += 0.0*( fe_face_values_T.shape_value(i,q_point) *
 										   	   fe_face_values_T.JxW(q_point));
                     }
                 }
@@ -1478,14 +1502,14 @@ namespace FullSolver
                 {
                 	fe_face_values_T.reinit (cell, face_number);
                 	fe_face_values_phi.reinit (phi_cell, face_number);
-                	fe_face_values_vr.reinit (vr_cell, face_number);
-                	fe_face_values_vf.reinit (vf_cell, face_numer);
+                	fe_face_values_rock.reinit (vr_cell, face_number);
+                	fe_face_values_vf.reinit (vf_cell, face_number);
                     
                     for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
                     {
 
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            cell_rhs(i) += (heat_flux / (phi0*Nu) *
+                            cell_rhs(i) += (heatflux_values[q_point] / (phi0*Nu) *
                          		   	   	   fe_face_values_T.shape_value(i,q_point) *
 										   	   fe_face_values_T.JxW(q_point));
                     }
