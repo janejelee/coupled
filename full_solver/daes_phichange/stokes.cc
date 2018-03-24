@@ -41,9 +41,8 @@ namespace Step22
         const double bottom = 0.0;
         const double left = 0.0;
         const double right = PI;
-        const double phi0 = 0.7;
         
-        const int refinement_level = 4;
+        const int refinement_level = 3;
     }
     using namespace data;
     
@@ -84,8 +83,9 @@ namespace Step22
     void
     RockTopStress<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
+        const double phi = 0.5*p[1];
         values(0) = 0;
-        values(1) = -(1-phi0)*(p[1]*p[1]*p[1] + 4*p[1]);
+        values(1) = -(1-phi)*(p[1]*p[1]*p[1] + 4*p[1]);
         values(2) = 0;
     }
     
@@ -102,8 +102,9 @@ namespace Step22
     void
     RockBottomStress<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
+        const double phi = 0.5*p[1];
         values(0) = 0;
-        values(1) = (1-phi0)*(p[1]*p[1]*p[1] + 4*p[1]);
+        values(1) = (1-phi)*(p[1]*p[1]*p[1] + 4*p[1]);
         values(2) = 0;
     }
     
@@ -141,8 +142,8 @@ namespace Step22
     {
         
         values(0) = 0;
-        values(1) = -(1-phi0)*(4.0 + 3*p[1]*p[1]);
-        values(2) = -(1-phi0)*(2*p[1]);
+        values(1) = -4+4*p[1]-3*p[1]*p[1]+2*p[1]*p[1]*p[1];
+        values(2) = 3/2*p[1]*p[1]-2*p[1];
     }
     template <int dim>
     class ExactSolution_phi : public Function<dim>
@@ -157,7 +158,7 @@ namespace Step22
     double ExactSolution_phi<dim>::value (const Point<dim>  &p,
                                           const unsigned int /*component*/) const
     {
-        return  phi0;
+        return  0.5*p[1];
         
     }
     
