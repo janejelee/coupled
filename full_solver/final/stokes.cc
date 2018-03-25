@@ -632,7 +632,7 @@ namespace FullSolver
         const unsigned int n_u = dofs_per_block[0],
         n_p = dofs_per_block[1];
         std::cout 
-        << "	Refinement level: "
+        << "   Refinement level: "
         << refinement_level
         << std::endl
 		<< "   Number of active cells: "
@@ -678,7 +678,7 @@ namespace FullSolver
         					n_pf = dofs_per_component[dim],
 							n_vf = dof_handler_vf.n_dofs();
 
-        std::cout << "	Number of degrees of freedom in fluid problem: "
+        std::cout << "   Number of degrees of freedom in fluid problem: "
 		<< dof_handler_pf.n_dofs()            
 		<< " (" << n_u << '+' << n_pf << '+' << n_vf << ')'            
 		<< std::endl;
@@ -734,6 +734,9 @@ namespace FullSolver
         DoFTools::make_hanging_node_constraints (dof_handler_phi,
                                                  hanging_node_constraints_phi);
         hanging_node_constraints_phi.close ();
+        std::cout << "   Number of degrees of freedom in porosity problem: "
+        << dof_handler_phi.n_dofs()
+        << std::endl;
         DynamicSparsityPattern dsp_phi(dof_handler_phi.n_dofs(), dof_handler_phi.n_dofs());
         DoFTools::make_sparsity_pattern(dof_handler_phi,
                                         dsp_phi,
@@ -763,7 +766,9 @@ namespace FullSolver
         DoFTools::make_hanging_node_constraints (dof_handler_T,
                                                  hanging_node_constraints_T);
         hanging_node_constraints_T.close ();
-        
+        std::cout << "   Number of degrees of freedom in temperature problem: "
+        << dof_handler_T.n_dofs()
+        << std::endl;
         DynamicSparsityPattern dsp_T (dof_handler_T.n_dofs(), dof_handler_T.n_dofs());
         DoFTools::make_sparsity_pattern (dof_handler_T, dsp_T);
         hanging_node_constraints_T.condense (dsp_T);
@@ -1656,6 +1661,7 @@ namespace FullSolver
                                             system_rhs_phi);
 
         std::cout << "   Solving for phi..." << std::endl;
+        
         SparseDirectUMFPACK  phi_direct;
         phi_direct.initialize(system_matrix_phi);
         phi_direct.vmult (solution_phi, system_rhs_phi);
@@ -1688,6 +1694,7 @@ namespace FullSolver
                                             system_rhs_T);
 
         std::cout << "   Solving for T..." << std::endl;
+        
         SparseDirectUMFPACK  T_direct;
         T_direct.initialize(system_matrix_T);
         T_direct.vmult (solution_T, system_rhs_T);
@@ -1854,7 +1861,7 @@ namespace FullSolver
                                                &velocity_mask);
             const double u_l2_error = cellwise_errors.l2_norm();
             std::cout << "           ||e_pf||_L2  = " << pf_l2_error
-            << ",  " << std::endl << "           ||e_u||_L2  = " << u_l2_error
+            << ",  " << std::endl << "           ||e_u||_L2   = " << u_l2_error
             << std::endl;
         }
         {
@@ -1901,7 +1908,7 @@ namespace FullSolver
             
             const double T_L2_error = cellwise_errors_T.l2_norm();
             
-            std::cout << "           ||e_T||_L2  = " << T_L2_error << std::endl;
+            std::cout << "           ||e_T||_L2   = " << T_L2_error << std::endl;
         }
     }
     
@@ -1910,6 +1917,8 @@ namespace FullSolver
     {
     	timestep_number = 0;
     	time = 0.0;
+        
+        std::cout << "   Problem degrees: " << degree_rock << ", " << degree_pf << ", " << degree_vf << ", " << degree_phi << ", " << degree_T << "." << std::endl;
 
         make_initial_grid ();
         print_mesh ();
@@ -1923,9 +1932,10 @@ namespace FullSolver
         VectorTools::interpolate(dof_handler_T, TempInitialFunction<dim>(), old_solution_T);
         solution_T = old_solution_T;
         
+        std::cout << "===========================================" << std::endl;
+        
         apply_BC_rock ();
-        std::cout << "   Assembling at timestep number "
-        << timestep_number << "..." <<  std::endl << std::flush;
+        std::cout << "   Assembling at timestep number " << timestep_number << " for rock and fluid..." <<  std::endl << std::flush;
         assemble_system_rock ();
         solve_rock ();
         
@@ -1938,8 +1948,13 @@ namespace FullSolver
 
         while (timestep_number < total_timesteps)
         {
+            std::cout << "   Moving to next time step" << std::endl
+            << "===========================================" << std::endl;
+            
             time += timestep;
             ++timestep_number;
+            
+            std::cout << "   Assembling at timestep number " << timestep_number << " from phi..." <<  std::endl << std::flush;
             
             assemble_system_phi ();
             assemble_rhs_phi ();
@@ -1958,13 +1973,15 @@ namespace FullSolver
 
             output_results ();
             compute_errors ();
-            
+
             old_solution_phi = solution_phi;
             old_solution_T = solution_T;
 
 //            print_mesh ();
 //            move_mesh ();
         }
+        
+        std::cout << "===========================================" << std::endl;
     }
 }
 
