@@ -3,6 +3,8 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/tensor_function.h>
 #include <deal.II/base/utilities.h>
+#include <deal.II/base/timer.h>
+#include <deal.II/base/convergence_table.h>
 #include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/block_sparse_matrix.h>
@@ -40,13 +42,13 @@ namespace FullSolver
     
     namespace data
     {
-        const unsigned int degree_rock = 1;
-        const unsigned int degree_pf = 1;
-        const unsigned int degree_vf = 1;
-        const unsigned int degree_phi = 1;
-        const unsigned int degree_T = 1;
+        const unsigned int degree_rock = 2;
+        const unsigned int degree_pf = 2;
+        const unsigned int degree_vf = 2;
+        const unsigned int degree_phi = 2;
+        const unsigned int degree_T = 2;
         
-        const int refinement_level = 3;
+        const int refinement_level = 5;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -67,8 +69,11 @@ namespace FullSolver
         const double Nu = 1.0;
         
         const double timestep_size = 0.0001;
-//        const double final_time = 1*timestep_size;
-        const double total_timesteps = 1;
+        const double total_timesteps = 10;
+        const int error_timestep = 1;
+        
+        ConvergenceTable                        convergence_table;
+        ConvergenceTable                        convergence_table_rate;
     }
     
     using namespace data;
@@ -1613,7 +1618,7 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::solve_rock ()
     {
-        std::cout << "   Solving for rock system..." << std::endl;
+//        std::cout << "   Solving for rock system..." << std::endl;
         SparseDirectUMFPACK  A_direct;
         A_direct.initialize(system_matrix_rock);
         A_direct.vmult (solution_rock, system_rhs_rock);
@@ -1623,13 +1628,13 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::solve_fluid ()
     {
-        std::cout << "   Solving for p_f..." << std::endl;
+//        std::cout << "   Solving for p_f..." << std::endl;
         SparseDirectUMFPACK  pf_direct;
         pf_direct.initialize(system_matrix_pf);
         pf_direct.vmult (solution_pf, system_rhs_pf);
     
         assemble_system_vf ();
-        std::cout << "   Solving for v_f..." << std::endl;
+//        std::cout << "   Solving for v_f..." << std::endl;
         SparseDirectUMFPACK  vf_direct;
         vf_direct.initialize(system_matrix_vf);
         vf_direct.vmult (solution_vf, system_rhs_vf);
@@ -1660,7 +1665,7 @@ namespace FullSolver
                                             solution_phi,
                                             system_rhs_phi);
 
-        std::cout << "   Solving for phi..." << std::endl;
+//        std::cout << "   Solving for phi..." << std::endl;
         
         SparseDirectUMFPACK  phi_direct;
         phi_direct.initialize(system_matrix_phi);
@@ -1693,7 +1698,7 @@ namespace FullSolver
                                             solution_T,
                                             system_rhs_T);
 
-        std::cout << "   Solving for T..." << std::endl;
+//        std::cout << "   Solving for T..." << std::endl;
         
         SparseDirectUMFPACK  T_direct;
         T_direct.initialize(system_matrix_T);
@@ -1814,57 +1819,48 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::compute_errors ()
     {
-        {
+    
             const ComponentSelectFunction<dim> pressure_mask (dim, dim+1);
             const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim), dim+1);
             ExactSolution_rock<dim> exact_solution_rock;
             
-            Vector<double> cellwise_errors (triangulation.n_active_cells());
+            Vector<double> cellwise_errors_rock (triangulation.n_active_cells());
             
             QTrapez<1>     q_trapez;
             QIterated<dim> quadrature (q_trapez, degree_rock+2);
             
             VectorTools::integrate_difference (dof_handler_rock, solution_rock, exact_solution_rock,
-                                               cellwise_errors, quadrature,
+                                               cellwise_errors_rock, quadrature,
                                                VectorTools::L2_norm,
                                                &pressure_mask);
-            const double p_l2_error = cellwise_errors.l2_norm();
+            const double pr_l2_error = cellwise_errors_rock.l2_norm();
             
             VectorTools::integrate_difference (dof_handler_rock, solution_rock, exact_solution_rock,
-                                               cellwise_errors, quadrature,
+                                               cellwise_errors_rock, quadrature,
                                                VectorTools::L2_norm,
                                                &velocity_mask);
-            const double u_l2_error = cellwise_errors.l2_norm();
-            std::cout << "   Errors: ||e_pr||_L2  = " << p_l2_error
-            << ",  " << std::endl << "           ||e_vr||_L2  = " << u_l2_error
+            const double vr_l2_error = cellwise_errors_rock.l2_norm();
+            std::cout << "   Errors: ||e_pr||_L2  = " << pr_l2_error
+            << ",  " << std::endl << "           ||e_vr||_L2  = " << vr_l2_error
             << std::endl;
-        }
-        {
-            const ComponentSelectFunction<dim> pressure_mask (dim, dim+1);
-            const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim), dim+1);
+    
             ExactSolution_pf<dim> exact_solution_pf;
             
-            Vector<double> cellwise_errors (triangulation.n_active_cells());
-            
-            QTrapez<1>     q_trapez;
-            QIterated<dim> quadrature (q_trapez, degree_pf+2);
-            
-            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf,
-                                               cellwise_errors, quadrature,
+            Vector<double> cellwise_errors_pf (triangulation.n_active_cells());
+        
+            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf, cellwise_errors_pf, quadrature,
                                                VectorTools::L2_norm,
                                                &pressure_mask);
-            const double pf_l2_error = cellwise_errors.l2_norm();
+            const double pf_l2_error = cellwise_errors_pf.l2_norm();
             
-            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf,
-                                               cellwise_errors, quadrature,
+            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf, cellwise_errors_pf, quadrature,
                                                VectorTools::L2_norm,
                                                &velocity_mask);
-            const double u_l2_error = cellwise_errors.l2_norm();
+            const double u_l2_error = cellwise_errors_pf.l2_norm();
             std::cout << "           ||e_pf||_L2  = " << pf_l2_error
             << ",  " << std::endl << "           ||e_u||_L2   = " << u_l2_error
             << std::endl;
-        }
-        {
+
             ExactSolution_vf<dim> exact_solution_vf;
             
             Vector<float> difference_per_cell (triangulation.n_active_cells());
@@ -1877,39 +1873,30 @@ namespace FullSolver
             const double vf_l2_error = difference_per_cell.l2_norm();
             std::cout << "           ||e_vf||_L2  = " << vf_l2_error
             << ",  " << std::endl;
-        }
-        {
+
             ExactSolution_phi<dim> exact_solution_phi;
             exact_solution_phi.set_time(time);
             
             Vector<double> cellwise_errors_phi (triangulation.n_active_cells());
-            
-            const QTrapez<1>     q_trapez;
-            const QIterated<dim> quadrature (q_trapez, degree_pf+2);
-            
+        
             VectorTools::integrate_difference (dof_handler_phi, solution_phi, exact_solution_phi,cellwise_errors_phi, quadrature,
                                                VectorTools::L2_norm);
             
             const double phi_L2_error = cellwise_errors_phi.l2_norm();
             
             std::cout << "           ||e_phi||_L2 = " << phi_L2_error << std::endl;
-        }
-        {
+
             ExactSolution_T<dim> exact_solution_T;
             exact_solution_T.set_time(time);
             
             Vector<double> cellwise_errors_T (triangulation.n_active_cells());
-            
-            const QTrapez<1>     q_trapez;
-            const QIterated<dim> quadrature (q_trapez, degree_pf+4);
-            
+        
             VectorTools::integrate_difference (dof_handler_T, solution_T, exact_solution_T, cellwise_errors_T, quadrature,
                                                VectorTools::L2_norm);
             
             const double T_L2_error = cellwise_errors_T.l2_norm();
             
             std::cout << "           ||e_T||_L2   = " << T_L2_error << std::endl;
-        }
     }
     
     template <int dim>
@@ -1956,6 +1943,9 @@ namespace FullSolver
             
             std::cout << "   Assembling at timestep number " << timestep_number << " from phi..." <<  std::endl << std::flush;
             
+            Timer timer;
+            timer.start ();
+            
             assemble_system_phi ();
             assemble_rhs_phi ();
             solve_phi (); // now have new solution and old solution
@@ -1970,8 +1960,13 @@ namespace FullSolver
 
             assemble_system_pf ();
             solve_fluid ();
+            
+            timer.stop ();
+            std::cout << "   Elapsed CPU time: " << timer() << " seconds." << std::endl;
+            timer.reset ();
 
             output_results ();
+//            if (timestep_number == error_timestep)
             compute_errors ();
 
             old_solution_phi = solution_phi;
