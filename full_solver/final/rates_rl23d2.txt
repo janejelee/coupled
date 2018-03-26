@@ -1,0 +1,36 @@
+
+timestep_size = 0.0001;
+C = 100;Problem degrees: 1, 1, 1, 1, 1.
+     Problem degrees: 1, 1, 1, 1, 1.
+2 to 3
+
+Timestep 10
+Pr 7.9729
+Vr 13.6244
+Pf 8.0023
+Vr 1.0416
+Phi 7.9049
+T 1.1306
+
+3 to 4
+
+Timestep 10
+Pr 7.9889
+Vr 14.9923
+Pf 8.0007
+Vf 1.0091
+Phi 7.9868
+T 1.0322 
+
+4 to 5
+
+Timestep 10
+Pr 7.9945
+Vr 15.5333
+Pf 8.0002
+Vf 1.0022
+Phi 7.9762
+T 1.0081
+
+
+ 
