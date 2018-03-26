@@ -1,0 +1,130 @@
+
+timestep_size = 0.0001;
+C = 100;
+   Problem degrees: 1, 1, 1, 1, 1.
+      Refinement level: 2
+   Number of active cells: 64
+   Number of degrees of freedom in rock problem: 679 (594+85)
+   Number of degrees of freedom in fluid problem: 808 (552+256+170)
+   Number of degrees of freedom in porosity problem: 85
+   Number of degrees of freedom in temperature problem: 85
+===========================================
+   Assembling at timestep number 0 for rock and fluid...
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.0968398,  
+           ||e_phi||_L2 = 9.27639e-17
+           ||e_T||_L2   = 0.0201
+   Moving to next time step
+===========================================
+   Assembling at timestep number 1 from phi...
+   Elapsed CPU time: 0.181913 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.0988672,  
+           ||e_phi||_L2 = 8.82609e-05
+           ||e_T||_L2   = 0.0203137
+   Moving to next time step
+===========================================
+   Assembling at timestep number 2 from phi...
+   Elapsed CPU time: 0.170654 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.101651,  
+           ||e_phi||_L2 = 0.000176522
+           ||e_T||_L2   = 0.0205518
+   Moving to next time step
+===========================================
+   Assembling at timestep number 3 from phi...
+   Elapsed CPU time: 0.168892 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.10509,  
+           ||e_phi||_L2 = 0.000264782
+           ||e_T||_L2   = 0.0208168
+   Moving to next time step
+===========================================
+   Assembling at timestep number 4 from phi...
+   Elapsed CPU time: 0.170665 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.109083,  
+           ||e_phi||_L2 = 0.000353042
+           ||e_T||_L2   = 0.0211112
+   Moving to next time step
+===========================================
+   Assembling at timestep number 5 from phi...
+   Elapsed CPU time: 0.175897 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.113538,  
+           ||e_phi||_L2 = 0.000441303
+           ||e_T||_L2   = 0.0214384
+   Moving to next time step
+===========================================
+   Assembling at timestep number 6 from phi...
+   Elapsed CPU time: 0.186379 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.118371,  
+           ||e_phi||_L2 = 0.000529562
+           ||e_T||_L2   = 0.0218018
+   Moving to next time step
+===========================================
+   Assembling at timestep number 7 from phi...
+   Elapsed CPU time: 0.17124 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.123509,  
+           ||e_phi||_L2 = 0.000617822
+           ||e_T||_L2   = 0.0222058
+   Moving to next time step
+===========================================
+   Assembling at timestep number 8 from phi...
+   Elapsed CPU time: 0.178202 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.12889,  
+           ||e_phi||_L2 = 0.000706082
+           ||e_T||_L2   = 0.0226552
+   Moving to next time step
+===========================================
+   Assembling at timestep number 9 from phi...
+   Elapsed CPU time: 0.17531 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.134461,  
+           ||e_phi||_L2 = 0.000794341
+           ||e_T||_L2   = 0.023156
+   Moving to next time step
+===========================================
+   Assembling at timestep number 10 from phi...
+   Elapsed CPU time: 0.172185 seconds.
+   Errors: ||e_pr||_L2  = 0.0205493,  
+           ||e_vr||_L2  = 7.40291e-05
+           ||e_pf||_L2  = 0.00675765,  
+           ||e_u||_L2   = 7.40291e-05
+           ||e_vf||_L2  = 0.140179,  
+           ||e_phi||_L2 = 0.0008826
+           ||e_T||_L2   = 0.023715
+===========================================
