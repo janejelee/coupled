@@ -42,13 +42,13 @@ namespace FullSolver
     
     namespace data
     {
-        const unsigned int degree_rock = 2;
-        const unsigned int degree_pf = 2;
-        const unsigned int degree_vf = 2;
-        const unsigned int degree_phi = 2;
-        const unsigned int degree_T = 2;
+        const unsigned int degree_rock = 1;
+        const unsigned int degree_pf = 1;
+        const unsigned int degree_vf = 1;
+        const unsigned int degree_phi = 1;
+        const unsigned int degree_T = 1;
         
-        const int refinement_level = 5;
+        const int refinement_level = 3;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -1418,9 +1418,11 @@ namespace FullSolver
         
         std::vector<Tensor<1,dim>> 	   vr_values (n_q_points);
         std::vector<Tensor<1,dim>>     vf_values (n_q_points);
+        std::vector<Tensor<1,dim>>     grad_phi_values (n_q_points);
         std::vector<double>            phi_values (n_q_points);
         std::vector<double>            old_phi_values (n_q_points);
-	       
+        std::vector<double>            div_vr_values (n_q_points);
+
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
         
@@ -1445,9 +1447,11 @@ namespace FullSolver
             fe_values_vf.reinit(vf_cell);
             
             fe_values_rock[velocities].get_function_values (solution_rock, vr_values);
+            fe_values_rock[velocities].get_function_divergences (solution_rock, div_vr_values);
             fe_values_vf[velocities].get_function_values (solution_vf, vf_values);
             fe_values_phi.get_function_values (solution_phi, phi_values);
             fe_values_phi.get_function_values (old_solution_phi, old_phi_values);
+            fe_values_phi.get_function_gradients (solution_phi, grad_phi_values);
             
             for (unsigned int q=0; q<n_q_points; ++q)
             {
@@ -1458,15 +1462,25 @@ namespace FullSolver
                 {
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
-                    	   cell_matrix_nontime(i,j) += ( - coeff_r*vr_values[q]*
-                                                        fe_values_T.shape_value(i,q)*
-                    			   	   	   	   	   	   fe_values_T.shape_grad(j,q)
-													   	  +
-                    			   	   	   	   kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
-                    			   	   	   	   	   	   	   fe_values_T.shape_grad(j,q)
-														   )*
-                     		   	   	   	   	   	 fe_values_T.JxW(q);
-                    	   
+//                           cell_matrix_nontime(i,j) += ( - coeff_r*vr_values[q]*
+//                                                        fe_values_T.shape_value(i,q)*
+//                                                                      fe_values_T.shape_grad(j,q)
+//                                                             +
+//                                                        kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
+//                                                                             fe_values_T.shape_grad(j,q)
+//                                                           )*
+//                                                                 fe_values_T.JxW(q);
+                        cell_matrix_nontime(i,j) += ( grad_phi_values[q]*vr_values[q]*
+                                                     fe_values_T.shape_value(i,q)*
+                                                     fe_values_T.shape_value(j,q)
+                                                     +
+                                                     (1-phi_values[q])*div_vr_values[q]*fe_values_T.shape_value(i,q)*fe_values_T.shape_value(j,q)
+                                                     + (1-phi_values[q])*vr_values[q]*fe_values_T.shape_grad(i,q)*fe_values_T.shape_value(j,q) +
+                                                     kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
+                                                     fe_values_T.shape_grad(j,q)
+                                                     )*
+                        fe_values_T.JxW(q);
+                        
                     	   cell_matrix(i,j) += ( coeff_r*
                     			   	   	   	   	   fe_values_T.shape_value(i,q)*
 												   fe_values_T.shape_value(j,q) 
@@ -1569,25 +1583,7 @@ namespace FullSolver
                                     rhs_values [q_point]) *
 									   fe_values_T.JxW(q_point));
                 }
-            
-            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-                if (cell->face(face_number)->at_boundary()
-                    &&
-                    (cell->face(face_number)->boundary_id() == 1))
-                {
-                	fe_face_values_T.reinit (cell, face_number);
-                	fe_face_values_phi.reinit (phi_cell, face_number);
-                	fe_face_values_rock.reinit (vr_cell, face_number);
-                	fe_face_values_vf.reinit (vf_cell, face_number);
-                    
-                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                    {
-                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-                            cell_rhs(i) += 0.0*( fe_face_values_T.shape_value(i,q_point) *
-										   	   fe_face_values_T.JxW(q_point));
-                    }
-                }
-            
+
             for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
                 if (cell->face(face_number)->at_boundary()
                     &&
