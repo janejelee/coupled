@@ -58,18 +58,15 @@ namespace FullSolver
         const double perm = 1.0;
         const double rho_f = 1.0;
         const double rho_r = 1.0;
-//        const double c_f = 1.0;
         const double c_r = 1.0;
         const double phi0 = 0.7;
         const double vr2_constant = -bottom*bottom;
-        const double C = 100;
-//        const double gamma = 1.0;
-//        const double heat_flux = 1.0;
+        const double C = 1;
         const double kappa = 1.0;
         const double Nu = 1.0;
         
         const double timestep_size = 0.0001;
-        const double total_timesteps = 10;
+        const double total_timesteps = 5;
         const int error_timestep = 1;
         
         ConvergenceTable                        convergence_table;
@@ -231,7 +228,7 @@ namespace FullSolver
         double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
         
         values(0) = 0.0;
-        values(1) = -p[1]*p[1] - lambda*perm/phi*(rho_f - rho_f*(1-p[1]*p[1]));
+        values(1) = -p[1]*p[1] - lambda*perm*(rho_f - rho_f*(1-p[1]*p[1]))/phi;
     }
 
     template <int dim>
@@ -341,7 +338,7 @@ namespace FullSolver
         const double time = this->get_time();
         double T = p[1]*p[1]*exp(-time);
         double phi = phi0 +C*time*exp(-p[1]*p[1]*p[1]);
-        return -T*(rho_r*c_r*(1-phi)) - rho_r*c_r*C*exp(-p[1]*p[1]*p[1])*T -4*p[1]*p[1]*p[1]*exp(-time)*(rho_r*c_r*(1-phi)) +p[1]*p[1]*p[1]*p[1]*exp(-time)*rho_r*c_r*(-3*p[1]*p[1]*C*time*exp(-p[1]*p[1]*p[1])) - 1/(phi0*Nu)*2*exp(-time);
+        return -rho_r*c_r*C*T*exp(-p[1]*p[1]*p[1])- rho_r*c_r*C*(1-phi)*T -4*p[1]*p[1]*p[1]*exp(-time)*(rho_r*c_r*(1-phi)) + p[1]*p[1]*p[1]*p[1]*exp(-time)*rho_r*c_r*(-3*p[1]*p[1]*C*time*exp(-p[1]*p[1]*p[1])) - kappa/(phi0*Nu)*2*exp(-time);
     }
     
     // n.(pI-2e(u)) for the top
@@ -872,10 +869,9 @@ namespace FullSolver
             local_rhs = 0;
             right_hand_side.vector_value_list(fe_values_rock.get_quadrature_points(),
                                               rhs_values);
-//            fe_values_phi.get_function_values (solution_phi, phi_values);
-            phi_solution.value_list(fe_values_rock.get_quadrature_points(), phi_values);
+            fe_values_phi.get_function_values (solution_phi, phi_values);
+//            phi_solution.value_list(fe_values_rock.get_quadrature_points(), phi_values);
 
-            
             for (unsigned int q=0; q<n_q_points; ++q)
             {
                 for (unsigned int k=0; k<dofs_per_cell; ++k)
@@ -903,7 +899,6 @@ namespace FullSolver
                     	local_rhs(i) +=  fe_values_rock.shape_value(i,q) *
                     				rhs_values[q](component_i) *
                                                         fe_values_rock.JxW(q);
-
                 }
             }
             
@@ -1462,24 +1457,20 @@ namespace FullSolver
                 {
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
-//                           cell_matrix_nontime(i,j) += ( - coeff_r*vr_values[q]*
-//                                                        fe_values_T.shape_value(i,q)*
-//                                                                      fe_values_T.shape_grad(j,q)
-//                                                             +
-//                                                        kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
-//                                                                             fe_values_T.shape_grad(j,q)
-//                                                           )*
-//                                                                 fe_values_T.JxW(q);
-                        cell_matrix_nontime(i,j) += ( grad_phi_values[q]*vr_values[q]*
-                                                     fe_values_T.shape_value(i,q)*
-                                                     fe_values_T.shape_value(j,q)
+                        cell_matrix_nontime(i,j) += (
+                                -grad_phi_values[q]*vr_values[q]*
+                                fe_values_T.shape_value(i,q)*fe_values_T.shape_value(j,q)
                                                      +
-                                                     (1-phi_values[q])*div_vr_values[q]*fe_values_T.shape_value(i,q)*fe_values_T.shape_value(j,q)
-                                                     + (1-phi_values[q])*vr_values[q]*fe_values_T.shape_grad(i,q)*fe_values_T.shape_value(j,q) +
-                                                     kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
+                                (1-phi_values[q])*div_vr_values[q]*
+                                fe_values_T.shape_value(i,q)*fe_values_T.shape_value(j,q)
+                                                     +
+                                (1-phi_values[q])*vr_values[q]*
+                                fe_values_T.shape_grad(i,q)*fe_values_T.shape_value(j,q)
+                                                     +
+                                    kappa/(phi0*Nu)*fe_values_T.shape_grad(i,q) *
                                                      fe_values_T.shape_grad(j,q)
                                                      )*
-                        fe_values_T.JxW(q);
+                                            fe_values_T.JxW(q);
                         
                     	   cell_matrix(i,j) += ( coeff_r*
                     			   	   	   	   	   fe_values_T.shape_value(i,q)*
@@ -1683,7 +1674,7 @@ namespace FullSolver
         hanging_node_constraints_T.condense (system_matrix_T);
 
         std::map<types::global_dof_index,double> boundary_values;
-        TempBoundaryValues<dim> T_boundary_values;
+        ExactSolution_T<dim> T_boundary_values;
         T_boundary_values.set_time(time);
         VectorTools::interpolate_boundary_values (dof_handler_T,
                                                   1,
@@ -1849,13 +1840,12 @@ namespace FullSolver
                                                &pressure_mask);
             const double pf_l2_error = cellwise_errors_pf.l2_norm();
             
-            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf, cellwise_errors_pf, quadrature,
-                                               VectorTools::L2_norm,
-                                               &velocity_mask);
-            const double u_l2_error = cellwise_errors_pf.l2_norm();
+//            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf, cellwise_errors_pf, quadrature,
+//                                               VectorTools::L2_norm,
+//                                               &velocity_mask);
+//            const double u_l2_error = cellwise_errors_pf.l2_norm();
             std::cout << "           ||e_pf||_L2  = " << pf_l2_error
-            << ",  " << std::endl << "           ||e_u||_L2   = " << u_l2_error
-            << std::endl;
+        << "  " << std::endl;
 
             ExactSolution_vf<dim> exact_solution_vf;
             
