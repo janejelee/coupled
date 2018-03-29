@@ -42,13 +42,13 @@ namespace FullSolver
     
     namespace data
     {
-        const unsigned int degree_rock = 1;
-        const unsigned int degree_pf = 1;
-        const unsigned int degree_vf = 1;
-        const unsigned int degree_phi = 1;
-        const unsigned int degree_T = 1;
+        const unsigned int degree_rock = 2;
+        const unsigned int degree_pf = 2;
+        const unsigned int degree_vf = 3;
+        const unsigned int degree_phi = 2;
+        const unsigned int degree_T = 2;
         
-        const int refinement_level = 3;
+        const int refinement_level = 4;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -166,7 +166,6 @@ namespace FullSolver
         unsigned int timestep_number;
         
     };
- 
     
     template <int dim>
     class ExactSolution_rock : public Function<dim>
@@ -380,90 +379,7 @@ namespace FullSolver
         values(1) = (1-phi)*(p[1]*p[1]*p[1] + 4*p[1]);
         values(2) = 0;
     }
-    
-    template <int dim>
-    class PressureBoundaryValues : public Function<dim>
-    {
-    public:
-        PressureBoundaryValues () : Function<dim>(1) {}
-        
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>    
-    double PressureBoundaryValues<dim>::value (const Point<dim>  &p,
-                                                   const unsigned int /*component*/) const
-        {
-            // This is the dirichlet condition for the top
-            return -rho_f*(p[1]-1./3*p[1]*p[1]*p[1]); // last term added to avoid warnings on work comp
-        }
-    
-    // Use this if you know where the inflow boundaries are and can define them
-    template <int dim>
-    class PhiBoundaryValues : public Function<dim>
-    {
-    public:
-        PhiBoundaryValues () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>
-    double PhiBoundaryValues<dim>::value (const Point<dim>  &p,
-                                     const unsigned int /*component*/) const
-    {
-        const double time = this->get_time();
-        return phi0 + C*time*exp(-p[1]*p[1]*p[1]);
-    }
 
-    template <int dim>
-    class TempBoundaryValues : public Function<dim>
-    {
-    public:
-        TempBoundaryValues () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>
-    double TempBoundaryValues<dim>::value (const Point<dim>  &p,
-                                          const unsigned int /*component*/) const
-    {
-        const double time = this->get_time();
-        return  p[1]*p[1]*exp(-time);
-    }
-    
-    template <int dim>
-    class PhiInitialFunction : public Function<dim>
-    {
-        public: PhiInitialFunction () : Function<dim>() {}
-                virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-
-    template <int dim>
-    double PhiInitialFunction<dim>::value (const Point<dim>  &p,
-                                           const unsigned int /*component*/) const
-    {
-        return phi0 + p[1]*0;
-    }
-    
-    template <int dim>
-    class TempInitialFunction : public Function<dim>
-    {
-    public: TempInitialFunction () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>
-    double TempInitialFunction<dim>::value (const Point<dim>  &p,
-                                           const unsigned int /*component*/) const
-    {
-        return p[1]*p[1];
-    }
-    
     template <int dim>
     class HeatFluxFunction : public Function<dim>
     {
@@ -478,6 +394,24 @@ namespace FullSolver
     {
         const double time = this->get_time();
         return -2*kappa*p[1]*exp(-time);
+    }
+    
+    template <int dim>
+    class PressureBoundaryValues : public Function<dim>
+    {
+    public:
+        PressureBoundaryValues () : Function<dim>(1) {}
+        
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    double PressureBoundaryValues<dim>::value (const Point<dim>  &p,
+                                               const unsigned int /*component*/) const
+    {
+        // This is the dirichlet condition for the top
+        return -rho_f*(p[1]-1./3*p[1]*p[1]*p[1]); // last term added to avoid warnings on work comp
     }
     
     template <int dim>
@@ -837,14 +771,18 @@ namespace FullSolver
         Vector<double>       local_rhs (dofs_per_cell);
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
-        const ExtraRHSRock<dim>          right_hand_side;
+        ExtraRHSRock<dim>          right_hand_side;
+        right_hand_side.set_time(time);
         std::vector<Vector<double> >     rhs_values (n_q_points, Vector<double>(dim+1));
         
-        const ExactSolution_phi<dim>     phi_solution;
+        ExactSolution_phi<dim>     phi_solution;
+        phi_solution.set_time(time);
         std::vector<double>			     phi_values (n_q_points);
         
-        const RockTopStress<dim>        topstress;
-        const RockBottomStress<dim>     bottomstress;
+        RockTopStress<dim>        topstress;
+        topstress.set_time(time);
+        RockBottomStress<dim>     bottomstress;
+        bottomstress.set_time(time);
         std::vector<Vector<double> >      topstress_values (n_face_q_points, Vector<double>      (dim+1));
         std::vector<Vector<double> >      bottomstress_values (n_face_q_points, Vector<double>      (dim+1));
     
@@ -869,8 +807,8 @@ namespace FullSolver
             local_rhs = 0;
             right_hand_side.vector_value_list(fe_values_rock.get_quadrature_points(),
                                               rhs_values);
-            fe_values_phi.get_function_values (solution_phi, phi_values);
-//            phi_solution.value_list(fe_values_rock.get_quadrature_points(), phi_values);
+//            fe_values_phi.get_function_values (solution_phi, phi_values);
+            phi_solution.value_list(fe_values_rock.get_quadrature_points(), phi_values);
 
             for (unsigned int q=0; q<n_q_points; ++q)
             {
@@ -1012,7 +950,7 @@ namespace FullSolver
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
         const ExtraRHSpf<dim>             pf_rhs_values;
-        const PressureBoundaryValues<dim> pressure_boundary_values;
+        const PressureBoundaryValues<dim>       pressure_boundary_values;
         const KInverse<dim>               k_inverse;
         const K<dim>               		  k;
         
@@ -1037,7 +975,7 @@ namespace FullSolver
 
             local_matrix = 0;
             local_rhs = 0;
-            
+
             k_inverse.value_list (fe_values_pf.get_quadrature_points(),
                                   k_inverse_values);
             k.value_list (fe_values_pf.get_quadrature_points(),
@@ -1179,7 +1117,6 @@ namespace FullSolver
                  fe_values_rock.reinit(vr_cell);
                  fe_values_phi.reinit(phi_cell);
                  
-                 local_matrix = 0;
                  local_rhs = 0;
                  
                  unitz (fe_values_vf.get_quadrature_points(), unitz_values);
@@ -1527,18 +1464,9 @@ namespace FullSolver
         FEValues<dim>  fe_values_T (fe_T, quadrature_formula,
                                   update_values   | update_gradients |
                                   update_quadrature_points | update_JxW_values);
-        FEFaceValues<dim>  fe_face_values_phi (fe_phi, face_quadrature_formula,
-                                  update_values   | update_gradients |
-                                  update_quadrature_points | update_JxW_values);        
-        FEFaceValues<dim>  fe_face_values_rock (fe_rock, face_quadrature_formula,
-                                  update_values   | update_gradients |
-                                  update_quadrature_points | update_JxW_values);        
-        FEFaceValues<dim>  fe_face_values_vf (fe_vf, face_quadrature_formula,
-                                  update_values   | update_gradients |
-                                  update_quadrature_points | update_JxW_values);
-        FEFaceValues<dim> fe_face_values_T (fe_T, face_quadrature_formula,
-                                          update_values         | update_quadrature_points  |
-                                          update_normal_vectors | update_JxW_values);
+        FEFaceValues<dim>   fe_face_values_T (fe_T, face_quadrature_formula,
+                                              update_values   | update_gradients |
+                                              update_quadrature_points | update_JxW_values);
         
         ExtraRHST<dim>   right_hand_side;
         std::vector<double>  rhs_values (n_q_points);
@@ -1551,13 +1479,7 @@ namespace FullSolver
         typename DoFHandler<dim>::active_cell_iterator
         cell = dof_handler_T.begin_active(),
         endc = dof_handler_T.end();
-        typename DoFHandler<dim>::active_cell_iterator
-        phi_cell = dof_handler_phi.begin_active();
-        typename DoFHandler<dim>::active_cell_iterator
-        vr_cell = dof_handler_rock.begin_active();
-        typename DoFHandler<dim>::active_cell_iterator
-        vf_cell = dof_handler_vf.begin_active();
-        for (; cell!=endc; ++cell, ++phi_cell, ++vr_cell, ++vf_cell)
+        for (; cell!=endc; ++cell)
         {
             cell_rhs = 0;
             fe_values_T.reinit (cell);
@@ -1580,11 +1502,7 @@ namespace FullSolver
                     &&
                     (cell->face(face_number)->boundary_id() == 2))
                 {
-                	fe_face_values_T.reinit (cell, face_number);
-                	fe_face_values_phi.reinit (phi_cell, face_number);
-                	fe_face_values_rock.reinit (vr_cell, face_number);
-                	fe_face_values_vf.reinit (vf_cell, face_number);
-                    
+                    fe_face_values_T.reinit (cell, face_number);
                     for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
                     {
                         for (unsigned int i=0; i<dofs_per_cell; ++i)
@@ -1619,7 +1537,7 @@ namespace FullSolver
         SparseDirectUMFPACK  pf_direct;
         pf_direct.initialize(system_matrix_pf);
         pf_direct.vmult (solution_pf, system_rhs_pf);
-    
+        
         assemble_system_vf ();
 //        std::cout << "   Solving for v_f..." << std::endl;
         SparseDirectUMFPACK  vf_direct;
@@ -1640,7 +1558,7 @@ namespace FullSolver
         hanging_node_constraints_phi.condense (system_matrix_phi);
 
         std::map<types::global_dof_index,double> boundary_values;
-        PhiBoundaryValues<dim> phi_boundary_values;
+        ExactSolution_phi<dim> phi_boundary_values;
         phi_boundary_values.set_time(time);
         
         VectorTools::interpolate_boundary_values (dof_handler_phi,
@@ -1839,11 +1757,6 @@ namespace FullSolver
                                                VectorTools::L2_norm,
                                                &pressure_mask);
             const double pf_l2_error = cellwise_errors_pf.l2_norm();
-            
-//            VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf, cellwise_errors_pf, quadrature,
-//                                               VectorTools::L2_norm,
-//                                               &velocity_mask);
-//            const double u_l2_error = cellwise_errors_pf.l2_norm();
             std::cout << "           ||e_pf||_L2  = " << pf_l2_error
         << "  " << std::endl;
 
@@ -1900,9 +1813,9 @@ namespace FullSolver
         setup_dofs_phi ();
         setup_dofs_T ();
         
-        VectorTools::interpolate(dof_handler_phi, PhiInitialFunction<dim>(), old_solution_phi);
+        VectorTools::interpolate(dof_handler_phi, ExactSolution_phi<dim>(), old_solution_phi);
         solution_phi = old_solution_phi;
-        VectorTools::interpolate(dof_handler_T, TempInitialFunction<dim>(), old_solution_T);
+        VectorTools::interpolate(dof_handler_T, ExactSolution_T<dim>(), old_solution_T);
         solution_T = old_solution_T;
         
         std::cout << "===========================================" << std::endl;
@@ -1917,7 +1830,7 @@ namespace FullSolver
         
         output_results ();
         compute_errors ();
-        timestep = timestep_size;
+//        timestep = timestep_size;
 
         while (timestep_number < total_timesteps)
         {
