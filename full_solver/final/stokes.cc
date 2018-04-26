@@ -42,21 +42,22 @@ namespace FullSolver
     
     namespace data
     {
-        const unsigned int degree_rock = 1;
-        const unsigned int degree_pf = 1;
-        const unsigned int degree_vf = 2;
-        const unsigned int degree_phi = 1;
-        const unsigned int degree_T = 1;
+        const unsigned int base_degree = 1;
+        const unsigned int degree_rock = base_degree;
+        const unsigned int degree_pf = base_degree ;
+        const unsigned int degree_vf = base_degree ;
+        const unsigned int degree_phi = base_degree;
+        const unsigned int degree_T = base_degree;
         
         const int refinement_level = 3;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
         const double right = PI;
-        
         const double lambda = 1.0;
-        const double perm = 1.0;
+        const double k = 1.0;
         const double rho_f = 1.0;
+        const double c_f = 1.0;
         const double rho_r = 1.0;
         const double c_r = 1.0;
         const double phi0 = 0.7;
@@ -67,7 +68,7 @@ namespace FullSolver
         
         const double timestep_size = 0.00001;
         const double total_timesteps = 5;
-        const int error_timestep = 1;
+//        const int error_timestep = 1;
         
         ConvergenceTable                        convergence_table;
         ConvergenceTable                        convergence_table_rate;
@@ -184,57 +185,6 @@ namespace FullSolver
     }
     
     template <int dim>
-    class Advection : public Function<dim>
-    {
-    public:
-        Advection () : Function<dim>(dim) {}
-        virtual void vector_value (const Point<dim> &p,
-                                   Vector<double>   &value) const;
-    };
-    template <int dim>
-    void
-    Advection<dim>::vector_value (const Point<dim> &p,
-                                  Vector<double>   &values) const
-    {
-        values(0) = 0;
-        values(1) = -p[1]*p[1];
-    }
-    template <int dim>
-    class AdvectionField : public TensorFunction<1,dim>
-    {
-    public:
-        AdvectionField () : TensorFunction<1,dim> () {}
-        virtual Tensor<1,dim> value (const Point<dim> &p) const;
-        virtual void value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<Tensor<1,dim> >    &values) const;
-        DeclException2 (ExcDimensionMismatch,
-                        unsigned int, unsigned int,
-                        << "The vector has size " << arg1 << " but should have "
-                        << arg2 << " elements.");
-    };
-    
-    template <int dim>
-    Tensor<1,dim>
-    AdvectionField<dim>::value (const Point<dim> &p) const
-    {
-        Point<dim> value;
-        value[0] = 0;
-        value[1] = -p[1]*p[1];
-        return value;
-    }
-    
-    template <int dim>
-    void
-    AdvectionField<dim>::value_list (const std::vector<Point<dim> > &points,
-                                     std::vector<Tensor<1,dim> >    &values) const
-    {
-        Assert (values.size() == points.size(),
-                ExcDimensionMismatch (values.size(), points.size()));
-        for (unsigned int i=0; i<points.size(); ++i)
-            values[i] = AdvectionField<dim>::value (points[i]);
-    }
-    
-    template <int dim>
     class ExactSolution_rock : public Function<dim>
     {
     public:
@@ -247,7 +197,7 @@ namespace FullSolver
     class ExactSolution_pf : public Function<dim>
     {
     public:
-        ExactSolution_pf () : Function<dim>(dim+1) {}
+        ExactSolution_pf () : Function<dim>(dim) {}
         
         virtual void vector_value (const Point<dim> &p,
                                    Vector<double>   &value) const;
@@ -257,10 +207,38 @@ namespace FullSolver
     class ExactSolution_vf : public Function<dim>
     {
     public:
-        ExactSolution_vf () : Function<dim>(dim+1) {}
+        ExactSolution_vf () : Function<dim>(dim) {}
         
         virtual void vector_value (const Point<dim> &p,
                                    Vector<double>   &value) const;
+    };
+    
+    template <int dim>
+    class ExactSolution_u : public Function<dim>
+    {
+    public:
+        ExactSolution_u () : Function<dim>(dim) {}
+        
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
+    };
+    
+    template <int dim>
+    class ExactSolution_phi : public Function<dim>
+    {
+    public:
+        ExactSolution_phi () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    class ExactSolution_T : public Function<dim>
+    {
+    public:
+        ExactSolution_T () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
     };
     
     template <int dim>
@@ -279,7 +257,7 @@ namespace FullSolver
         Assert (values.size() == dim+1,
                 ExcDimensionMismatch (values.size(), dim+1));
         
-        const double permeability = perm;
+        const double permeability = k;
         
         values(0) = 0.0;
         values(1) = lambda*rho_f*(1-p[1]*p[1])*permeability;
@@ -294,17 +272,16 @@ namespace FullSolver
         double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
         
         values(0) = 0.0;
-        values(1) = -p[1]*p[1] - lambda*perm*(rho_f - rho_f*(1-p[1]*p[1]))/phi;
+        values(1) = -p[1]*p[1] - lambda*k*(rho_f - rho_f*(1-p[1]*p[1]))/phi;
     }
-    
+
     template <int dim>
-    class ExactSolution_phi : public Function<dim>
+    void ExactSolution_u<dim>::vector_value (const Point<dim> &p,
+                                              Vector<double>   &values) const
     {
-    public:
-        ExactSolution_phi () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
+        values(0) = 0.0;
+        values(1) = lambda*k*rho_f*(1-p[1]*p[1]);
+    }
     
     template <int dim>
     double ExactSolution_phi<dim>::value (const Point<dim>  &p,
@@ -313,16 +290,7 @@ namespace FullSolver
         const double time = this->get_time();
         return  phi0 + C*time*exp(-p[1]*p[1]*p[1]);
     }
-    
-    template <int dim>
-    class ExactSolution_T : public Function<dim>
-    {
-    public:
-        ExactSolution_T () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
+
     template <int dim>
     double ExactSolution_T<dim>::value (const Point<dim>  &p,
                                         const unsigned int /*component*/) const
@@ -344,14 +312,12 @@ namespace FullSolver
     void
     ExtraRHSRock<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
-        //        values(0) = 0;
-        //        values(1) = -4+4*p[1]-3*p[1]*p[1]+2*p[1]*p[1]*p[1];
-        //        values(2) = 3/2*p[1]*p[1]-2*p[1];
         const double time = this->get_time();
         double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
         values(0) = 0;
-        values(1) = -(4+3*p[1]*p[1])*(1-phi) - C*time*exp(-p[1]*p[1]*p[1])*(12*p[1]*p[1]*p[1] + 3*p[1]*p[1]*p[1]*p[1]*p[1]);
-        values(2) = -2*p[1]*(1-phi) - 3*C*time*p[1]*p[1]*p[1]*p[1]*exp(-p[1]*p[1]*p[1]);
+        values(1) = -(4+3*p[1]*p[1])*(1-phi)
+                        - C*time*exp(-p[1]*p[1]*p[1])*(12*pow(p[1],3.0)+ 3*pow(p[1],5.0));
+        values(2) = -2*p[1]*(1-phi) - 3*C*time*pow(p[1],4.0)*exp(-p[1]*p[1]*p[1]);
     }
     
     template <int dim>
@@ -367,7 +333,7 @@ namespace FullSolver
     double ExtraRHSpf<dim>::value (const Point<dim>   &p,
                                    const unsigned int) const
     {
-        return 2*p[1]*(1 + lambda*perm*rho_f);
+        return 2*p[1]*(1 + lambda*k*rho_f);
     }
     
     template <int dim>
@@ -385,7 +351,7 @@ namespace FullSolver
                              const unsigned int) const
     {
         const double time = this->get_time();
-        return C*exp(-p[1]*p[1]*p[1]) + 3*C*time*p[1]*p[1]*p[1]*p[1]*exp(-p[1]*p[1]*p[1]) + p[1]*p[1]*p[1];
+        return C*exp(-p[1]*p[1]*p[1]) + 3*C*time*pow(p[1],4.0)*exp(-p[1]*p[1]*p[1]) + pow(p[1],3.0);
     }
     
     template <int dim>
@@ -403,9 +369,18 @@ namespace FullSolver
     {
         const double time = this->get_time();
         double T = p[1]*p[1]*exp(-time);
-        double phi = phi0 +C*time*exp(-p[1]*p[1]*p[1]);
-        return -p[1]*p[1]*exp(-time)*(1-phi) + p[1]*p[1]*exp(-time)*C*exp(-p[1]*p[1]*p[1])
-                        -2*p[1]*p[1]*p[1]*exp(-time) - kappa/(phi0*Nu)*2*exp(-time);
+        double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
+        double vfz = -p[1]*p[1];
+        double dvf = -2*p[1]*(1.0 + lambda*k*rho_f/phi) - 3*pow(p[1],4.0)*lambda*k*rho_f*C*time*
+                            exp(-pow(p[1],3.0))*(1.0/phi)*(1.0/phi);
+        
+        return rho_f*c_f* (-p[1]*p[1]*exp(-time)*phi + C*exp(-p[1]*p[1]*p[1])*T ) +
+            rho_r*c_r*(-p[1]*p[1]*exp(-time)*(1-phi) - T*C*exp(-p[1]*p[1]*p[1])) +
+                rho_f*c_f* (-3*p[1]*p[1]*C*time*exp(-p[1]*p[1]*p[1])*vfz*T
+                            + phi*dvf*T + phi*vfz*2*p[1]*exp(-time) ) +
+                      rho_r*c_r* (-3*pow(p[1],4.0)*C*time*exp(-p[1]*p[1]*p[1])*T
+                        -2*p[1]*(1.0-phi)*T -2*(1.0-phi)*p[1]*p[1]*p[1]*exp(-time))
+                            - kappa/(phi0*Nu)*2*exp(-time);
     }
     
     // n.(pI-2e(u)) for the top
@@ -504,7 +479,7 @@ namespace FullSolver
         for (unsigned int p=0; p<points.size(); ++p)
         {
             values[p].clear ();
-            const double permeability = perm;
+            const double permeability = k;
             
             for (unsigned int d=0; d<dim; ++d)
                 values[p][d][d] = 1./permeability;
@@ -540,7 +515,7 @@ namespace FullSolver
                 values[p].clear ();/*
                                     const double distance_to_flowline
                                     = std::fabs(points[p][1]-0.2*std::sin(10*points[p][0]));*/
-                const double permeability = perm;
+                const double permeability = k;
                 
                 for (unsigned int d=0; d<dim; ++d)
                     values[p][d][d] = permeability;
@@ -1160,9 +1135,9 @@ namespace FullSolver
         
         std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
         
-        std::vector<Tensor<1,dim>>     grad_pf_values (n_q_points);
+        std::vector<Tensor<1,dim>>     u_values (n_q_points);
         std::vector<Tensor<1,dim>>     unitz_values (n_q_points);
-        std::vector<Tensor<1,dim>>        vr_values (n_q_points);
+        std::vector<Tensor<1,dim>>     vr_values (n_q_points);
         std::vector<double>            pf_values (n_q_points);
         std::vector<double>            phi_values (n_q_points);
         
@@ -1188,7 +1163,7 @@ namespace FullSolver
             local_rhs = 0;
             
             unitz (fe_values_vf.get_quadrature_points(), unitz_values);
-            fe_values_pf[pressure].get_function_gradients (solution_pf, grad_pf_values);
+            fe_values_pf[velocities].get_function_values (solution_pf, u_values);
             fe_values_rock[velocities].get_function_values (solution_rock, vr_values);
             fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
             fe_values_phi.get_function_values (solution_phi, phi_values);
@@ -1200,8 +1175,9 @@ namespace FullSolver
                 
                 for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
                 { local_rhs(i) +=    ( vr_values[q_point][component_i]
-                                      - (lambda*perm/phi_values[q_point])*
-                                      (grad_pf_values[q_point][component_i] + unitz_values[q_point][component_i])
+                                      + (1.0/phi_values[q_point])*
+                                      (u_values[q_point][component_i]
+                                       - lambda*k*rho_f*unitz_values[q_point][component_i])
                                       ) * fe_values_vf.shape_value(i,q_point) *
                     fe_values_vf.JxW(q_point);
                 }
@@ -1211,7 +1187,6 @@ namespace FullSolver
             for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
                 system_rhs_vf(local_dof_indices[i]) += local_rhs(i);
-                
             }
         }
     }
@@ -1406,11 +1381,18 @@ namespace FullSolver
         FEValues<dim> fe_values_phi (fe_phi, quadrature_formula,
                                    update_values    |  update_gradients |
                                    update_quadrature_points  |  update_JxW_values);
+        FEValues<dim> fe_values_vr (fe_rock, quadrature_formula,
+                                    update_values    | update_gradients |
+                                    update_quadrature_points  | update_JxW_values);
+        FEValues<dim> fe_values_vf (fe_vf, quadrature_formula,
+                                    update_values    | update_gradients |
+                                    update_quadrature_points  | update_JxW_values);
         //        FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
         //                                          update_values | update_quadrature_points |
         //                                          update_JxW_values | update_normal_vectors);
         
-        const AdvectionField<dim> advection_field;
+        const FEValuesExtractors::Vector velocities (0);
+        const FEValuesExtractors::Scalar pressure (dim);
         
         const unsigned int dofs_per_cell   = fe_T.dofs_per_cell;
         const unsigned int n_q_points      = fe_values_T.get_quadrature().size();
@@ -1426,18 +1408,26 @@ namespace FullSolver
         cell_matrix_old.reinit (dofs_per_cell, dofs_per_cell);
         local_dof_indices.resize(dofs_per_cell);
         
-        std::vector<Tensor<1,dim> > advection_directions (n_q_points);
         //        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
         
         std::vector<double>            phi_values (n_q_points);
         std::vector<double>            old_phi_values (n_q_points);
-        
+        std::vector<Tensor<1,dim>>     vr_values (n_q_points);
+        std::vector<Vector<double> >   vf_values(n_q_points, Vector<double>(dim));
+        std::vector<double>            div_vr_values (n_q_points);
+        std::vector<double>            div_vf_values (n_q_points);
+        std::vector<Tensor<1,dim>>     grad_phi_values (n_q_points);
+
         typename DoFHandler<dim>::active_cell_iterator
         cell = dof_handler_T.begin_active(),
         endc = dof_handler_T.end();
         typename DoFHandler<dim>::active_cell_iterator
         phi_cell = dof_handler_phi.begin_active();
-        for (; cell!=endc; ++cell, ++phi_cell)
+        typename DoFHandler<dim>::active_cell_iterator
+        vr_cell = dof_handler_rock.begin_active();
+        typename DoFHandler<dim>::active_cell_iterator
+        vf_cell = dof_handler_vf.begin_active();
+        for (; cell!=endc; ++cell, ++phi_cell, ++vr_cell, ++vf_cell)
         {
             cell_matrix = 0;
             cell_matrix_old = 0;
@@ -1445,43 +1435,62 @@ namespace FullSolver
             
             fe_values_T.reinit (cell);
             fe_values_phi.reinit (phi_cell);
-            advection_field.value_list (fe_values_T.get_quadrature_points(),
-                                        advection_directions);
-//            old_phi.value_list (fe_values_T.get_quadrature_points(),
-//                                old_phi_values);
-//            current_phi.value_list (fe_values_T.get_quadrature_points(),
-//                                    phi_values);
+            fe_values_vr.reinit (vr_cell);
+            fe_values_vf.reinit (vf_cell);
             fe_values_phi.get_function_values (old_solution_phi, old_phi_values);
             fe_values_phi.get_function_values (solution_phi, phi_values);
-
-            
-            //            const double delta = 0.1 * cell->diameter ();
+            fe_values_phi.get_function_gradients (solution_phi, grad_phi_values);
+            fe_values_vr[velocities].get_function_values (solution_rock, vr_values);
+            fe_values_vr[velocities].get_function_divergences (solution_rock, div_vr_values);
+            fe_values_vf.get_function_values (solution_vf, vf_values);
+            fe_values_vf[velocities].get_function_divergences (solution_vf, div_vf_values);
             
             for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
-                    // (v_r.grad phi, psi+d*v_r.grad_psi)
+                    Tensor<1,dim> vf;
+                    for (unsigned int d=0; d<dim; ++d)
+                        vf[d] = vf_values[q_point](d);
+                    
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
                     {
-                        cell_matrix_nontime(i,j) += (
-                                                     (advection_directions[q_point] *
+                        cell_matrix_nontime(i,j) += ( (
+                                                       rho_f*c_f*
+                                                       (grad_phi_values[q_point]* vf +
+                                                        phi_values[q_point] * div_vf_values[q_point] )
+                                                       +
+                                                      rho_r*c_r*
+                                                       ( -grad_phi_values[q_point]* vr_values[q_point] +
+                                                      (1.0 - phi_values[q_point])* div_vr_values[q_point] )
+                                                       )*
+                                                      fe_values_T.shape_value(i,q_point) *
+                                                      fe_values_T.shape_value(j,q_point)
+                                                      +
+                                                      ( rho_f * c_f * phi_values[q_point] * vf  +
+                                                       rho_r*c_r*
+                                                      (1.0 - phi_values[q_point])* vr_values[q_point] )*
                                                       fe_values_T.shape_grad(j,q_point)   *
                                                       fe_values_T.shape_value(i,q_point)
-                                                      +   kappa/(phi0*Nu)
+                                                      +
+                                                      kappa/(phi0*Nu)
                                                       *fe_values_T.shape_grad(i,q_point) *
                                                       fe_values_T.shape_grad(j,q_point)
                                                       ) *
-                                                     fe_values_T.JxW(q_point));
+                                                     fe_values_T.JxW(q_point);
                         
-                        cell_matrix_old(i,j) += (1.0 - old_phi_values[q_point])
-                        *fe_values_T.shape_value(i,q_point)*
-                        fe_values_T.shape_value(j,q_point)*
-                        fe_values_T.JxW(q_point);
+                        cell_matrix_old(i,j) += ( rho_f*c_f*(old_phi_values[q_point]) +
+                                                 rho_r*c_r*(1.0 - old_phi_values[q_point])
+                                                 )*
+                                                    fe_values_T.shape_value(i,q_point)*
+                                                    fe_values_T.shape_value(j,q_point)*
+                                                    fe_values_T.JxW(q_point);
                         
-                        cell_matrix(i,j) += (1.0 - phi_values[q_point])*
-                        fe_values_T.shape_value(i,q_point)*
-                        fe_values_T.shape_value(j,q_point)*
-                        fe_values_T.JxW(q_point);
+                        cell_matrix(i,j) += ( rho_f*c_f*(phi_values[q_point]) +
+                                             rho_r*c_r*(1.0 - phi_values[q_point])
+                                             )*
+                                                fe_values_T.shape_value(i,q_point)*
+                                                fe_values_T.shape_value(j,q_point)*
+                                                fe_values_T.JxW(q_point);
                     }
                 }
             
@@ -1524,8 +1533,6 @@ namespace FullSolver
                                           update_values | update_quadrature_points |
                                           update_JxW_values | update_normal_vectors);
         
-        const AdvectionField<dim> advection_field;
-        
         ExtraRHST<dim>  right_hand_side;
         right_hand_side.set_time(time);
         
@@ -1553,8 +1560,6 @@ namespace FullSolver
             cell_rhs = 0;
             
             fe_values_T.reinit (cell);
-            advection_field.value_list (fe_values_T.get_quadrature_points(),
-                                        advection_directions);
             right_hand_side.value_list (fe_values_T.get_quadrature_points(),
                                         rhs_values);
             heat_flux.value_list (fe_values_T.get_quadrature_points(),
@@ -1808,12 +1813,12 @@ namespace FullSolver
         
         const ComponentSelectFunction<dim> pressure_mask (dim, dim+1);
         const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim), dim+1);
-        ExactSolution_rock<dim> exact_solution_rock;
-        
-        Vector<double> cellwise_errors_rock (triangulation.n_active_cells());
-        
         QTrapez<1>     q_trapez;
         QIterated<dim> quadrature (q_trapez, degree_rock+2);
+        
+        // ROCK ERRORS
+        ExactSolution_rock<dim> exact_solution_rock;
+        Vector<double> cellwise_errors_rock (triangulation.n_active_cells());
         
         VectorTools::integrate_difference (dof_handler_rock, solution_rock, exact_solution_rock,
                                            cellwise_errors_rock, quadrature,
@@ -1826,21 +1831,31 @@ namespace FullSolver
                                            VectorTools::L2_norm,
                                            &velocity_mask);
         const double vr_l2_error = cellwise_errors_rock.l2_norm();
+        
         std::cout << "   Errors: ||e_pr||_L2  = " << pr_l2_error
-        << ",  " << std::endl << "           ||e_vr||_L2  = " << vr_l2_error
+        << "  " << std::endl << "           ||e_vr||_L2  = " << vr_l2_error
         << std::endl;
         
+        // U AND PF ERRORS
         ExactSolution_pf<dim> exact_solution_pf;
-        
         Vector<double> cellwise_errors_pf (triangulation.n_active_cells());
         
+        VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf,
+                                           cellwise_errors_pf, quadrature,
+                                           VectorTools::L2_norm,
+                                           &velocity_mask);
+        const double u_l2_error = cellwise_errors_pf.l2_norm();
+
         VectorTools::integrate_difference (dof_handler_pf, solution_pf, exact_solution_pf, cellwise_errors_pf, quadrature,
                                            VectorTools::L2_norm,
                                            &pressure_mask);
         const double pf_l2_error = cellwise_errors_pf.l2_norm();
-        std::cout << "           ||e_pf||_L2  = " << pf_l2_error
-        << "  " << std::endl;
         
+        std::cout << "           ||e_pf||_L2  = " << pf_l2_error
+        << "  " << std::endl << "           ||e_u||_L2   = " << u_l2_error
+        << std::endl;
+        
+        // VF ERRORS
         ExactSolution_vf<dim> exact_solution_vf;
         
         Vector<float> difference_per_cell (triangulation.n_active_cells());
