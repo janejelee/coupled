@@ -65,6 +65,10 @@ namespace FullSolver
         const double C = 1;
         const double kappa = 1.0;
         const double Nu = 1.0;
+        const double Re = 1.0;
+        const double Ri = 1.0;
+        const double chem_c = 1.0;
+        const double mu_r = 1.0;
         
         const double timestep_size = 0.00001;
         const double total_timesteps = 5;
@@ -351,7 +355,8 @@ namespace FullSolver
                              const unsigned int) const
     {
         const double time = this->get_time();
-        return C*exp(-p[1]*p[1]*p[1]) + 3*C*time*pow(p[1],4.0)*exp(-p[1]*p[1]*p[1]) + pow(p[1],3.0);
+        return C*exp(-p[1]*p[1]*p[1]) + 3*C*time*pow(p[1],4.0)*exp(-p[1]*p[1]*p[1]) + pow(p[1],3.0)
+                    + Re*Ri*chem_c/mu_r*( pow(p[1],3.0) - (-rho_f*(p[1]-1.0/3.0*pow(p[1],3.0)) ) );
     }
     
     template <int dim>
@@ -1247,10 +1252,8 @@ namespace FullSolver
                         cell_matrix(i,j) += ((vr_values[q_point] *
                                               fe_values_phi.shape_grad(j,q_point)   *
                                               (fe_values_phi.shape_value(i,q_point)
-                                               //                                               +
-                                               //                                               delta *
-                                               //                                               (advection_directions[q_point] *
-                                               //                                                fe_values.shape_grad(i,q_point))
+//                                                       + delta * (advection_directions[q_point] *
+//                                                                fe_values.shape_grad(i,q_point))
                                                )) *
                                              fe_values_phi.JxW(q_point));
                 }
@@ -1340,11 +1343,10 @@ namespace FullSolver
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
                     cell_rhs(i) += ((fe_values_phi.shape_value(i,q_point)
-                                     //                                     +
-                                     //                                     delta *
-                                     //                                     (advection_directions[q_point] *
-                                     //                                      fe_values.shape_grad(i,q_point))
-                                     ) *( -pr_values[q_point] +
+                                     //     + delta *(advection_directions[q_point] *
+//                                            fe_values.shape_grad(i,q_point))
+                                     )
+                                    *(-Re*Ri*chem_c/mu_r*(pr_values[q_point] - pf_values[q_point]) +
                                          extra_phi_values[q_point]) *
                                     fe_values_phi.JxW (q_point));
                 }
@@ -1387,28 +1389,17 @@ namespace FullSolver
         FEValues<dim> fe_values_vf (fe_vf, quadrature_formula,
                                     update_values    | update_gradients |
                                     update_quadrature_points  | update_JxW_values);
-        //        FEFaceValues<dim> fe_face_values (fe, face_quadrature_formula,
-        //                                          update_values | update_quadrature_points |
-        //                                          update_JxW_values | update_normal_vectors);
-        
+
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
         
         const unsigned int dofs_per_cell   = fe_T.dofs_per_cell;
         const unsigned int n_q_points      = fe_values_T.get_quadrature().size();
-        //        const unsigned int n_face_q_points = fe_face_values.get_quadrature().size();
-        
-        ExactSolution_phi<dim> old_phi;
-        old_phi.set_time(time-timestep);
-        ExactSolution_phi<dim> current_phi;
-        current_phi.set_time(time);
-        
+    
         cell_matrix.reinit (dofs_per_cell, dofs_per_cell);
         cell_matrix_nontime.reinit (dofs_per_cell, dofs_per_cell);
         cell_matrix_old.reinit (dofs_per_cell, dofs_per_cell);
         local_dof_indices.resize(dofs_per_cell);
-        
-        //        std::vector<Tensor<1,dim> > face_advection_directions (n_face_q_points);
         
         std::vector<double>            phi_values (n_q_points);
         std::vector<double>            old_phi_values (n_q_points);
