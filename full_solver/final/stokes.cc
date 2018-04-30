@@ -173,22 +173,6 @@ namespace FullSolver
     };
     
     template <int dim>
-    class InitialFunction : public Function<dim>
-    {
-    public:
-        InitialFunction () : Function<dim>() {}
-        virtual double value (const Point<dim>   &p,
-                              const unsigned int  component = 0) const;
-    };
-    
-    template <int dim>
-    double InitialFunction<dim>::value (const Point<dim>  &p,
-                                        const unsigned int /*component*/) const
-    {
-        return p[1]*p[1];
-    }
-    
-    template <int dim>
     class ExactSolution_rock : public Function<dim>
     {
     public:
@@ -469,24 +453,56 @@ namespace FullSolver
     }
     
     template <int dim>
-    class InitialRHSRock : public Function<dim>
+    class InitialFunction_phi : public Function<dim>
     {
     public:
-        InitialRHSRock () : Function<dim>(dim+1) {}
-        virtual void vector_value (const Point<dim> &p, Vector<double>   &value) const;
+        InitialFunction_phi () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
     };
     
     template <int dim>
-    void
-    InitialRHSRock<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
+    class InitialFunction_vf : public Function<dim>
+    {
+    public:
+        InitialFunction_vf () : Function<dim>(dim) {}
+        
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
+    };
+    
+    template <int dim>
+    class InitialFunction_T : public Function<dim>
+    {
+    public:
+        InitialFunction_T () : Function<dim>() {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+    };
+    
+    template <int dim>
+    void InitialFunction_vf<dim>::vector_value (const Point<dim> &p,
+                                              Vector<double>   &values) const
     {
         const double time = 0.0;
         double phi = phi0 + C*time*exp(-p[1]*p[1]*p[1]);
-        values(0) = 0;
-        values(1) = -(4+3*p[1]*p[1])*(1-phi)
-                    - C*time*exp(-p[1]*p[1]*p[1])*(12*pow(p[1],3.0)+ 3*pow(p[1],5.0));
-        values(2) = -2*p[1]*(1-phi) - 3*C*time*pow(p[1],4.0)*exp(-p[1]*p[1]*p[1]);
-//                            + phi0* 2*p[1]*(1+ lambda*k*rho_f/phi0);
+        
+        values(0) = 0.0;
+        values(1) = -p[1]*p[1] - lambda*k*(rho_f - rho_f*(1-p[1]*p[1]))/phi;
+    }
+
+    template <int dim>
+    double InitialFunction_phi<dim>::value (const Point<dim>  &p,
+                                        const unsigned int /*component*/) const
+    {
+        return phi0;
+    }
+
+    template <int dim>
+    double InitialFunction_T<dim>::value (const Point<dim>  &p,
+                                            const unsigned int /*component*/) const
+    {
+        return p[1]*p[1];
     }
     
     template <int dim>
@@ -861,9 +877,6 @@ namespace FullSolver
         right_hand_side.set_time(time);
         std::vector<Vector<double> >     rhs_values (n_q_points, Vector<double>(dim+1));
         
-        InitialRHSRock<dim>              initial_right_hand_side;
-        std::vector<Vector<double> >     initial_rhs_values (n_q_points, Vector<double>(dim+1));
-        
         std::vector<double>                 phi_values (n_q_points);
         std::vector<Tensor<1,dim>>          grad_phi_values (n_q_points);
         std::vector<Vector<double> >        vf_values(n_q_points, Vector<double>(dim));
@@ -900,8 +913,6 @@ namespace FullSolver
             local_rhs = 0;
             right_hand_side.vector_value_list(fe_values_rock.get_quadrature_points(),
                                                         rhs_values);
-            initial_right_hand_side.vector_value_list(fe_values_rock.get_quadrature_points(),
-                                                      initial_rhs_values);
             fe_values_phi.get_function_values (solution_phi, phi_values);
             fe_values_phi.get_function_gradients (solution_phi, grad_phi_values);
             fe_values_vf.get_function_values (solution_vf, vf_values);
@@ -1969,11 +1980,11 @@ namespace FullSolver
         setup_dofs_phi ();
         setup_dofs_T ();
 
-        VectorTools::interpolate(dof_handler_phi, ExactSolution_phi<dim>(), old_solution_phi);
+        VectorTools::interpolate(dof_handler_vf, InitialFunction_vf<dim>(), solution_vf);
+        VectorTools::interpolate(dof_handler_phi, InitialFunction_phi<dim>(), old_solution_phi);
         solution_phi = old_solution_phi;
-        VectorTools::interpolate(dof_handler_T, ExactSolution_T<dim>(), old_solution_T);
+        VectorTools::interpolate(dof_handler_T, InitialFunction_T<dim>(), old_solution_T);
         solution_T = old_solution_T;
-        VectorTools::interpolate(dof_handler_vf, ExactSolution_vf<dim>(), solution_vf);
 
         std::cout << "===========================================" << std::endl;
 
