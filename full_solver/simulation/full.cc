@@ -692,7 +692,7 @@ namespace FullSolver
                                             (0*pf_values[q]*grad_phi_values[q] +
                                                     0*phi_values[q]*grad_pf_values[q])
                                        )* phi_u[i]
-                                              - (0*grad_phi_values[q]*vf + 0*phi_values[q]*div_vf_values[q])
+                                              - (grad_phi_values[q]*vf + 0*phi_values[q]*div_vf_values[q])
                                               * phi_p[i]
                                               )*
                                                 fe_values_rock.JxW(q);
