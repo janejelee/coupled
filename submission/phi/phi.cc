@@ -50,7 +50,7 @@ namespace FullSolver
         const unsigned int degree_phi  = base_degree;
         const unsigned int degree_T    = base_degree;
         
-        const int refinement_level = 7;
+        const int refinement_level = 5;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -74,9 +74,9 @@ namespace FullSolver
         const double rocktopstress = 1;
         const double rockbottomstress = 10;
         
-        const double timestep_size = 0.00001;
-        const double constant = 0.01/timestep_size;
-        const double total_timesteps = 20;
+        const double timestep_size = 0.0001;
+        const double constant = 10;//0.01/timestep_size;
+        const double total_timesteps = 10;
         
         ConvergenceTable                        convergence_table;
         ConvergenceTable                        convergence_table_rate;
@@ -223,7 +223,8 @@ namespace FullSolver
     double PhiBoundaryValues<dim>::value (const Point<dim> &p, const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return phi0*exp(-constant*time*p[0]*p[1]);
+//        return phi0*exp(-constant*time*p[0]*p[1]);
+        return phi0*(constant)*cos(time)*p[0]*p[1];
     }
     
     template <int dim>
@@ -261,7 +262,8 @@ namespace FullSolver
     template <int dim>
     double InitialFunction_phi<dim>::value (const Point<dim>  &p, const unsigned int /*component*/) const
     {
-        return phi0;
+        double time = 0.0;
+        return phi0*constant*cos(time)*p[0]*p[1];
     }
     
     template <int dim>
@@ -379,7 +381,7 @@ namespace FullSolver
     double ExactSolution<dim>::value (const Point<dim>  &p, const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return phi0*exp(-constant*time*p[0]*p[1]);
+        return phi0*constant*cos(time)*p[0]*p[1];
     }
     
     template <int dim>
@@ -394,24 +396,47 @@ namespace FullSolver
     double RightHandSide<dim>::value (const Point<dim>  &p, const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        double old_phi = phi0*exp(-constant*(time-timestep_size)*p[0]*p[1]);
-        double old_T = T0 + (1.0 - p[1]*p[1])*(time-timestep_size)*1e3;
-        double pr = patm + 5*(top-p[1])*exp(-time);
-        double pf = patm + 2* time *(top-p[1])*sin(PI*p[0]/right);
-        double grad_pr_x = 0.0;
-        double grad_pr_z = -5*exp(-time);
-        double grad_pf_x = 2*time*top*(PI/right)*cos(PI*p[0]/right);
-        double grad_pf_z = -2*time*sin(PI*p[0]/right);
+//        double old_phi = phi0*exp(-constant*(time-timestep_size)*p[0]*p[1]);
+//        double old_T = T0 + (1.0 - p[1]*p[1])*(time-timestep_size)*1e3;
+//        double pr = patm + 5*(top-p[1])*exp(-time);
+//        double pf = patm + 2* time *(top-p[1])*sin(PI*p[0]/right);
+//        double grad_pr_x = 0.0;
+//        double grad_pr_z = -5*exp(-time);
+//        double grad_pf_x = 2*time*top*(PI/right)*cos(PI*p[0]/right);
+//        double grad_pf_z = -2*time*sin(PI*p[0]/right);
         double advection_x = p[0]*(right-p[0])*p[1];
         double advection_z = -time-p[0]*p[1]*p[1];
-        double C = 3.5*pow(old_phi,0.1)* pow(1.0-old_phi,2.2);
-        double mu = exp(E/R * (1.0/(old_T +273.0) - 1.0/(T0+273.0)));
-        double mexp = constant*time*p[0]*p[1];
+//        double C = 3.5*pow(old_phi,0.1)* pow(1.0-old_phi,2.2);
+//        double mu = exp(E/R * (1.0/(old_T +273.0) - 1.0/(T0+273.0)));
+//        double mexp = constant*time*p[0]*p[1];
+        double phi = phi0*constant*cos(time)*p[0]*p[1];
+        double grad_phi_x = phi0*constant*cos(time)*p[1];
+        double grad_phi_z = phi0*constant*cos(time)*p[0];
+        double dphidt = -phi0*constant*sin(time)*p[1]*p[0];
         
-        double DphiDt = phi0*exp(-mexp)* ( (time+p[0]*p[1]*p[1])*constant*time*p[0] - constant*p[0]*p[1]
-                                          -p[0]*p[1]*(right-p[0])*constant*time*p[1] );
+        double DphiDt = dphidt + advection_x*grad_phi_x + advection_z*grad_phi_z;
+        //phi0*exp(-mexp)* ( (time+p[0]*p[1]*p[1])*constant*time*p[0] - constant*p[0]*p[1]
+//                                          -p[0]*p[1]*(right-p[0])*constant*time*p[1] );
         
-        return gamma*exp(-gamma*(pr-pf))*( (top-p[1])*(-5*exp(-time)-2*sin(PI*p[0]/right)) +advection_x*(grad_pr_x - grad_pf_x) + advection_z*(grad_pr_z - grad_pf_z) )  + Re*Ri*C/mu*(pr-pf) + DphiDt;
+//        return gamma*exp(-gamma*(pr-pf))*( (top-p[1])*(-5*exp(-time)-2*sin(PI*p[0]/right)) +advection_x*(grad_pr_x - grad_pf_x) + advection_z*(grad_pr_z - grad_pf_z) )  + Re*Ri*C/mu*(pr-pf) + DphiDt;
+        
+        return DphiDt;
+    }
+    
+    template <int dim>
+    class vr_exact : public Function<dim>
+    {
+    public: vr_exact () : Function<dim>(dim+1) {}
+        virtual void vector_value (const Point<dim> &p, Vector<double> &value) const;
+    };
+
+    template <int dim>
+    void vr_exact<dim>::vector_value (const Point<dim> &p, Vector<double> &values) const
+    {
+        const double time = this->get_time();
+        values(0) = p[0]*(right-p[0])*p[1]; //vrx
+        values(1) = -time-p[0]*p[1]*p[1];//vry
+        values(2) = patm + 5*(top-p[1])*exp(-time); //pr.
     }
     
     template <int dim>
@@ -923,8 +948,8 @@ namespace FullSolver
             fe_values_phi.reinit(cell);
             fe_values_vr.reinit(vr_cell);
             
-//            fe_values_vr[velocities].get_function_values (solution_rock, vr_values);
-            advection_values.value_list (fe_values_vr.get_quadrature_points(), vr_values);
+            fe_values_vr[velocities].get_function_values (solution_rock, vr_values);
+//            advection_values.value_list (fe_values_vr.get_quadrature_points(), vr_values);
 
             const double delta = 0.1 * cell->diameter ();
             
@@ -933,6 +958,9 @@ namespace FullSolver
                 {
                     // (v_r.grad phi, psi+d*v_r.grad_psi)
                     for (unsigned int j=0; j<dofs_per_cell; ++j)
+                    {
+                        if (timestep_number == 1)
+                        {
                         cell_matrix(i,j) += ((vr_values[q_point] *
                                               fe_values_phi.shape_grad(j,q_point)   *
                                               (fe_values_phi.shape_value(i,q_point)
@@ -940,6 +968,18 @@ namespace FullSolver
                                                           fe_values_phi.shape_grad(i,q_point))
                                                )) *
                                              fe_values_phi.JxW(q_point));
+                        }
+                        else
+                        {
+                            cell_matrix(i,j) += 0*((vr_values[q_point] *
+                                                    fe_values_phi.shape_grad(j,q_point)   *
+                                                    (fe_values_phi.shape_value(i,q_point)
+                                                     + delta * (vr_values[q_point] *
+                                                                fe_values_phi.shape_grad(i,q_point))
+                                                     )) *
+                                                   fe_values_phi.JxW(q_point));
+                        }
+                    }
                 }
             
 //            for (unsigned int face=0; face<GeometryInfo<dim>::faces_per_cell; ++face)
@@ -1056,17 +1096,18 @@ namespace FullSolver
             fe_values_rock.reinit (rock_cell);
             fe_values_T.reinit (T_cell);
             
-            fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
-            fe_values_pf[velocities].get_function_values (solution_pf, u_values); // actually grad pf
-            fe_values_phi.get_function_values (old_solution_phi, old_phi_values);
-            fe_values_T.get_function_values (old_solution_T, old_T_values);
+//            fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
+//            fe_values_pf[velocities].get_function_values (solution_pf, u_values); // actually grad pf
+//            fe_values_phi.get_function_values (old_solution_phi, old_phi_values);
+//            fe_values_T.get_function_values (old_solution_T, old_T_values);
 //            fe_values_rock[pressure].get_function_values (solution_rock, pr_values);
 //            fe_values_rock[pressure].get_function_gradients (solution_rock, grad_pr_values);
-//            fe_values_rock[velocities].get_function_values (solution_rock, vr_values);
-            advection_values.value_list (fe_values_rock.get_quadrature_points(), vr_values);
-            pr_known_values.value_list (fe_values_rock.get_quadrature_points(), pr_values);
-            grad_pr_known_values.value_list (fe_values_rock.get_quadrature_points(), grad_pr_values);
+            fe_values_rock[velocities].get_function_values (solution_rock, vr_values);
             right_hand_side.value_list (fe_values_phi.get_quadrature_points(), rhs_values);
+            
+//            advection_values.value_list (fe_values_rock.get_quadrature_points(), vr_values);
+//            pr_known_values.value_list (fe_values_rock.get_quadrature_points(), pr_values);
+//            grad_pr_known_values.value_list (fe_values_rock.get_quadrature_points(), grad_pr_values);
             
             const double delta = 0.1 * cell->diameter ();
             for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
@@ -1079,19 +1120,28 @@ namespace FullSolver
                 
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
+//                    cell_rhs(i) += ((fe_values_phi.shape_value(i,q_point)
+//                                     + delta *(vr_values[q_point] *
+//                                               fe_values_phi.shape_grad(i,q_point))
+//                                     )
+//                                    *(
+//                                      - Re*Ri*chem_c/mu_r * (pr_values[q_point] - pf_values[q_point])
+//                                      - phi0* gamma * (vr_values[q_point] *
+//                                                       (grad_pr_values[q_point] - grad_pf_values[q_point]) ) *
+//                                      exp( -gamma*(pr_values[q_point] - pf_values[q_point]) )
+//                                      + rhs_values[q_point]
+//                                      ) *
+//                                    fe_values_phi.JxW (q_point));
+
                     cell_rhs(i) += ((fe_values_phi.shape_value(i,q_point)
                                      + delta *(vr_values[q_point] *
                                                fe_values_phi.shape_grad(i,q_point))
                                      )
                                     *(
-                                      - Re*Ri*chem_c/mu_r * (pr_values[q_point] - pf_values[q_point])
-                                      - phi0* gamma * (vr_values[q_point] *
-                                                       (grad_pr_values[q_point] - grad_pf_values[q_point]) ) *
-                                      exp( -gamma*(pr_values[q_point] - pf_values[q_point]) )
-                                      + rhs_values[q_point]
+                                      rhs_values[q_point]
                                       ) *
                                     fe_values_phi.JxW (q_point));
-//                    std::cout << rhs_values[q_point] << std::endl;
+                    //                    std::cout << cell_rhs(i) << std::endl;
 
                 }
             }
@@ -1297,6 +1347,10 @@ namespace FullSolver
             pf_function.set_time(time);
             VectorTools::interpolate(dof_handler_pf, pf_function, solution_pf);
             
+            vr_exact<dim> vr_function;
+            vr_function.set_time(time);
+            VectorTools::interpolate(dof_handler_rock, vr_function, solution_rock);
+            
             std::cout << "   Assembling at timestep number " << timestep_number
             << " from phi..." <<  std::endl << std::flush;
             
@@ -1316,7 +1370,7 @@ namespace FullSolver
             old_solution_phi = solution_phi;
             
             print_mesh ();
-//            move_mesh ();
+            move_mesh ();
         }
         std::cout << "===========================================" << std::endl;
     }
