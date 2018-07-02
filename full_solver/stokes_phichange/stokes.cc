@@ -43,9 +43,9 @@ namespace FullSolver
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
-        const double right = 5.0;
+        const double right = 4.0;
         
-        const int refinement_level = 10;
+        const int refinement_level = 12;
     }
     using namespace data;
     
