@@ -413,125 +413,6 @@ namespace FullSolver
         system_rhs_rock.block(1).reinit (n_p);
         system_rhs_rock.collect_sizes ();
     }
-    
-//    template <int dim>
-//    void FullMovingMesh<dim>::assemble_system_rock ()
-//    {
-//        system_matrix_rock=0;
-//        system_rhs_rock=0;
-//        QGauss<dim>   quadrature_formula(degree_vr+2);
-//        QGauss<dim-1> face_quadrature_formula(degree_vr+2);
-//
-//        FEValues<dim> fe_values_rock (fe_rock, quadrature_formula,
-//                                      update_values    |
-//                                      update_quadrature_points  |
-//                                      update_JxW_values |
-//                                      update_gradients);
-//        FEFaceValues<dim> fe_face_values_rock ( fe_rock, face_quadrature_formula,
-//                                               update_values | update_normal_vectors |
-//                                               update_quadrature_points |update_JxW_values   );
-//
-//        const unsigned int   dofs_per_cell   = fe_rock.dofs_per_cell;
-//        const unsigned int   n_q_points      = quadrature_formula.size();
-//        const unsigned int   n_face_q_points = face_quadrature_formula.size();
-//
-//        FullMatrix<double>   local_matrix (dofs_per_cell, dofs_per_cell);
-//        Vector<double>       local_rhs (dofs_per_cell);
-//        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-//
-//        const ExtraRHSRock<dim>          right_hand_side;
-//        std::vector<Vector<double> >      rhs_values (n_q_points,
-//                                                      Vector<double>(dim+1));
-//        const ExactSolution_phi<dim>    phi_solution;
-//        std::vector<double>             phi_values(n_q_points);
-//
-//        const RockTopStress<dim>        topstress;
-//        const RockBottomStress<dim>     bottomstress;
-//        std::vector<Vector<double> >      topstress_values (n_face_q_points, Vector<double>      (dim+1));
-//        std::vector<Vector<double> >      bottomstress_values (n_face_q_points, Vector<double>      (dim+1));
-//
-//        const FEValuesExtractors::Vector velocities (0);
-//        const FEValuesExtractors::Scalar pressure (dim);
-//
-//        std::vector<SymmetricTensor<2,dim> > symgrad_phi_u (dofs_per_cell);
-//        std::vector<double>                  div_phi_u   (dofs_per_cell);
-//        std::vector<double>                  phi_p       (dofs_per_cell);
-//
-//        typename DoFHandler<dim>::active_cell_iterator
-//        cell = dof_handler_rock.begin_active(),
-//        endc = dof_handler_rock.end();
-//        for (; cell!=endc; ++cell)
-//        {
-//            fe_values_rock.reinit (cell);
-//            local_matrix = 0;
-//            local_rhs = 0;
-//            right_hand_side.vector_value_list(fe_values_rock.get_quadrature_points(),
-//                                              rhs_values);
-//            phi_solution.value_list(fe_values_rock.get_quadrature_points(), phi_values);
-//            for (unsigned int q=0; q<n_q_points; ++q)
-//            {
-//                for (unsigned int k=0; k<dofs_per_cell; ++k)
-//                {
-//                    symgrad_phi_u[k] = fe_values_rock[velocities].symmetric_gradient (k, q);
-//                    div_phi_u[k]     = fe_values_rock[velocities].divergence (k, q);
-//                    phi_p[k]         = fe_values_rock[pressure].value (k, q);
-//                }
-//                for (unsigned int i=0; i<dofs_per_cell; ++i)
-//                {
-//                    for (unsigned int j=0; j<=i; ++j)
-//                    { // matrix assembly
-//                        local_matrix(i,j) += (-2 * (1-phi_values[q])*(symgrad_phi_u[i] * symgrad_phi_u[j])
-//                                              + (1-phi_values[q])*div_phi_u[i] * phi_p[j]
-//                                              + (1-phi_values[q])*phi_p[i] * div_phi_u[j])
-//                        * fe_values_rock.JxW(q);
-//                    }
-//
-//                    const unsigned int component_i = fe_rock.system_to_component_index(i).first;
-//
-//                    // Add the extra terms on RHS
-//                    local_rhs(i) +=
-//                    fe_values_rock.shape_value(i,q) *
-//                    rhs_values[q](component_i) *
-//                    fe_values_rock.JxW(q);
-//                }
-//            }
-//
-//            //            //Neumann Stress conditions on top boundary
-//            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-//                if (cell->face(face_number)->at_boundary()
-//                    &&
-//                    (cell->face(face_number)->boundary_id() == 1))
-//                {
-//                    fe_face_values_rock.reinit (cell, face_number);
-//
-//                    topstress.vector_value_list(fe_face_values_rock.get_quadrature_points(),
-//                                                topstress_values);
-//
-//                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-//                    {
-//
-//                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-//                        {
-//
-//                            const unsigned int component_i = fe_rock.system_to_component_index(i).first;
-//
-//                            local_rhs(i) += (-topstress_values[q_point](component_i)*
-//                                             fe_face_values_rock.
-//                                             shape_value(i,q_point) *
-//                                             fe_face_values_rock.JxW(q_point));
-//                        }
-//                    }
-//                }
-//
-//            for (unsigned int i=0; i<dofs_per_cell; ++i)
-//                for (unsigned int j=i+1; j<dofs_per_cell; ++j)
-//                    local_matrix(i,j) = local_matrix(j,i);
-//            cell->get_dof_indices (local_dof_indices);
-//
-//            constraints_rock.distribute_local_to_global (local_matrix, local_rhs,
-//                                                         local_dof_indices,
-//                                                         system_matrix_rock, system_rhs_rock);
-//    }
 
         template <int dim>
         void FullMovingMesh<dim>::setup_dofs_fluid ()
@@ -702,9 +583,6 @@ namespace FullSolver
         std::vector<double>                  phi_p       (dofs_per_cell);
         std::vector<Tensor<1,dim> >          phi_u     (dofs_per_cell);
 
-//        const ExtraRHSRock<dim>          right_hand_side;
-//        std::vector<Vector<double> >      rhs_values (n_q_points,
-//                                                      Vector<double>(dim+1));
 
         const FEValuesExtractors::Vector velocities (0);
         const FEValuesExtractors::Scalar pressure (dim);
