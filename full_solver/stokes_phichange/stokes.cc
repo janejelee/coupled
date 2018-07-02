@@ -42,7 +42,7 @@ namespace Step22
         const double left = 0.0;
         const double right = PI;
         
-        const int refinement_level = 3;
+        const int refinement_level = 5;
     }
     using namespace data;
     
@@ -162,6 +162,35 @@ namespace Step22
         
     }
     
+    template <int dim>
+    class BoundaryValues : public Function<dim>
+    {
+    public:
+        BoundaryValues () : Function<dim>(dim+1) {}
+        virtual double value (const Point<dim>   &p,
+                              const unsigned int  component = 0) const;
+        virtual void vector_value (const Point<dim> &p,
+                                   Vector<double>   &value) const;
+    };
+    template <int dim>
+    double
+    BoundaryValues<dim>::value (const Point<dim>  &p,
+                                const unsigned int component) const
+    {
+        Assert (component < this->n_components,
+                ExcIndexRange (component, 0, this->n_components));
+        return 0;
+    }
+    template <int dim>
+    void
+    BoundaryValues<dim>::vector_value (const Point<dim> &p,
+                                       Vector<double>   &values) const
+    {
+        for (unsigned int c=0; c<this->n_components; ++c)
+            values(c) = BoundaryValues<dim>::value (p, c);
+    }
+
+    
     
     template <int dim>
     StokesProblem<dim>::StokesProblem (const unsigned int degree)
@@ -197,6 +226,12 @@ namespace Step22
             VectorTools::compute_no_normal_flux_constraints (dof_handler, 0,
                                                              no_normal_flux_boundaries,
                                                              constraints);
+            
+                VectorTools::interpolate_boundary_values (dof_handler,
+                                                          2,
+                                                          BoundaryValues<dim>(),
+                                                          constraints,
+                                                          fe.component_mask(velocities));
         }
         constraints.close ();
         
@@ -345,29 +380,29 @@ namespace Step22
                 }
             
             // Neumann Stress conditions on bottom boundary
-            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-                if (cell->face(face_number)->at_boundary()
-                    &&
-                    (cell->face(face_number)->boundary_id() == 2))
-                {
-                    
-                    fe_face_values.reinit (cell, face_number);
-                    
-                    bottomstress.vector_value_list(fe_face_values.get_quadrature_points(),
-                                                   bottomstress_values);
-                    
-                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-                    {
-                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-                        {
-                            const unsigned int component_i = fe.system_to_component_index(i).first;
-                            local_rhs(i) += (-bottomstress_values[q_point](component_i)*
-                                             fe_face_values.
-                                             shape_value(i,q_point) *
-                                             fe_face_values.JxW(q_point));
-                        }
-                    }
-                }
+//            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
+//                if (cell->face(face_number)->at_boundary()
+//                    &&
+//                    (cell->face(face_number)->boundary_id() == 2))
+//                {
+//
+//                    fe_face_values.reinit (cell, face_number);
+//
+//                    bottomstress.vector_value_list(fe_face_values.get_quadrature_points(),
+//                                                   bottomstress_values);
+//
+//                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
+//                    {
+//                        for (unsigned int i=0; i<dofs_per_cell; ++i)
+//                        {
+//                            const unsigned int component_i = fe.system_to_component_index(i).first;
+//                            local_rhs(i) += (-bottomstress_values[q_point](component_i)*
+//                                             fe_face_values.
+//                                             shape_value(i,q_point) *
+//                                             fe_face_values.JxW(q_point));
+//                        }
+//                    }
+//                }
             
             for (unsigned int i=0; i<dofs_per_cell; ++i)
                 for (unsigned int j=i+1; j<dofs_per_cell; ++j)
@@ -378,27 +413,48 @@ namespace Step22
                                                     local_dof_indices,
                                                     system_matrix, system_rhs);
         }
-
-        std::map<types::global_dof_index, double> vr_determination;
-        {
-            types::global_dof_index n_dofs = dof_handler.n_dofs();
-            std::vector<bool> componentVector(dim + 1, false);
-            componentVector[dim-1] = true;
-            
-            std::vector<bool> selected_dofs(n_dofs);
-            std::set< types::boundary_id > boundary_ids;
-            boundary_ids.insert(2);
-            
-            DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
-                                            selected_dofs, boundary_ids);
-            
-            for (types::global_dof_index i = 0; i < n_dofs; i++)
-            {
-                if (selected_dofs[i]) vr_determination[i] = vr2_constant;
-            }
-        }
-        MatrixTools::apply_boundary_values(vr_determination,
-                                           system_matrix, solution, system_rhs);
+//        std::map<types::global_dof_index, double> vr_determination;
+//        {
+//            types::global_dof_index n_dofs = dof_handler.n_dofs();
+//            std::vector<bool> componentVector(dim + 1, false);
+//            componentVector[dim] = true;
+//
+//            std::vector<bool> selected_dofs(n_dofs);
+//            std::set< types::boundary_id > boundary_ids;
+//            boundary_ids.insert(1);
+//
+//            DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
+//                                            selected_dofs, boundary_ids);
+//
+//            for (types::global_dof_index i = 0; i < n_dofs; i++)
+//            {
+//                if (selected_dofs[i]) vr_determination[i] = 1.0;
+//            }
+//        }
+//        MatrixTools::apply_boundary_values(vr_determination,
+//                                           system_matrix, solution, system_rhs);
+//        {
+//            std::map<types::global_dof_index, double> vr_determination;
+//            {
+//                types::global_dof_index n_dofs = dof_handler.n_dofs();
+//                std::vector<bool> componentVector(dim + 1, false);
+//                componentVector[dim] = true;
+//
+//                std::vector<bool> selected_dofs(n_dofs);
+//                std::set< types::boundary_id > boundary_ids;
+//                boundary_ids.insert(2);
+//
+//                DoFTools::extract_boundary_dofs(dof_handler, ComponentMask(componentVector),
+//                                                selected_dofs, boundary_ids);
+//
+//                for (types::global_dof_index i = 0; i < n_dofs; i++)
+//                {
+//                    if (selected_dofs[i]) vr_determination[i] = vr2_constant;
+//                }
+//            }
+//            MatrixTools::apply_boundary_values(vr_determination,
+//                                               system_matrix, solution, system_rhs);
+//        }
     }
     
     template <int dim>
