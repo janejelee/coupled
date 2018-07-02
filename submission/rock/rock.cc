@@ -987,7 +987,7 @@ namespace FullSolver
             output_results ();
 
             print_mesh ();
-//            move_mesh ();
+            move_mesh ();
         }
         std::cout << "===========================================" << std::endl;
     }
