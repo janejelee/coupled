@@ -531,7 +531,7 @@ namespace FullSolver
     void FullMovingMesh<dim>::run ()
     {
         std::vector<unsigned int> subdivisions (dim, 1);
-        subdivisions[0] = 5;
+        subdivisions[0] = 3;
         
         const Point<dim> bottom_left = (dim == 2 ?
                                         Point<dim>(data::left,data::bottom) :
