@@ -531,7 +531,7 @@ namespace FullSolver
     void FullMovingMesh<dim>::run ()
     {
         std::vector<unsigned int> subdivisions (dim, 1);
-        subdivisions[0] = 1;
+        subdivisions[0] = 5;
         
         const Point<dim> bottom_left = (dim == 2 ?
                                         Point<dim>(data::left,data::bottom) :
@@ -540,7 +540,7 @@ namespace FullSolver
                                         Point<dim>(data::right,data::top) :
                                         Point<dim>(0,1,0));
         
-        GridGenerator::hyper_rectangle (triangulation, bottom_left, top_right);
+        GridGenerator::subdivided_hyper_rectangle (triangulation, subdivisions, bottom_left, top_right);
         
         for (typename Triangulation<dim>::active_cell_iterator
              cell = triangulation.begin_active();
