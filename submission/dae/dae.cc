@@ -351,6 +351,9 @@ namespace FullSolver
     template <int dim>
     void FullMovingMesh<dim>::make_initial_grid ()
     {
+        std::vector<unsigned int> subdivisions (dim, 1);
+        subdivisions[0] = 3;
+        
         const Point<dim> bottom_left = (dim == 2 ?
                                         Point<dim>( left, bottom) :
                                         Point<dim>(-2,0,-1));
@@ -358,7 +361,7 @@ namespace FullSolver
                                         Point<dim>( right, top) :
                                         Point<dim>(0,1,0));
         
-        GridGenerator::hyper_rectangle (triangulation, bottom_left, top_right);
+        GridGenerator::subdivided_hyper_rectangle (triangulation, subdivisions, bottom_left, top_right);
         
         for (typename Triangulation<dim>::active_cell_iterator
              cell = triangulation.begin_active();
@@ -803,8 +806,8 @@ namespace FullSolver
                         const double        div_phi_j_u = fe_values_pf[velocities].divergence (j, q);
                         const double        phi_j_p     = fe_values_pf[pressure].value (j, q);
                         
-                        local_matrix(i,j) += ( phi_i_u * phi_j_u
-                                              - k * div_phi_i_u * phi_j_p
+                        local_matrix(i,j) += ( 1./k * phi_i_u * phi_j_u
+                                              - div_phi_i_u * phi_j_p
                                               - lambda * phi_i_p * div_phi_j_u)
                         * fe_values_pf.JxW(q);
                     }
@@ -961,19 +964,18 @@ namespace FullSolver
             fe_values_pf[pressure].get_function_values (solution_pf, pf_values);
             fe_values_phi.get_function_values (solution_phi, phi_values);
             
-            for (unsigned int i=0; i<dofs_per_cell; ++i)
+            for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
             {
-                const unsigned int
-                component_i = fe_vf.system_to_component_index(i).first;
-                
-                for (unsigned int q_point=0; q_point<n_q_points; ++q_point)
+                for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
-                    const double k = pow(phi_values[q_point],a)*pow(1./phi0,a);
+                    const unsigned int
+                    component_i = fe_vf.system_to_component_index(i).first;
+                    const double k = 1;// pow(phi_values[q_point],a)*pow(1./phi0,a);
                     
                     local_rhs(i) +=    ( vr_values[q_point][component_i]
                                         + (lambda/phi_values[q_point])*
-                                        (u_values[q_point][component_i]
-                                         - k * rho_f *unitz_values[q_point][component_i])
+                                        (u_values[q_point][component_i] //u is -k grad pf
+                                         - k * rho_f*unitz_values[q_point][component_i])
                                         ) * fe_values_vf.shape_value(i,q_point) *
                     fe_values_vf.JxW(q_point);
                 }
@@ -1133,6 +1135,7 @@ namespace FullSolver
         solve_rock ();
         
         assemble_system_pf ();
+        assemble_system_vf ();
         solve_fluid ();
         
         output_results ();
@@ -1156,6 +1159,7 @@ namespace FullSolver
             solve_rock ();
             
             assemble_system_pf ();
+            assemble_system_vf ();
             solve_fluid ();
             
             output_results ();
