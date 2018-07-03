@@ -352,7 +352,7 @@ namespace FullSolver
     void FullMovingMesh<dim>::make_initial_grid ()
     {
         std::vector<unsigned int> subdivisions (dim, 1);
-        subdivisions[0] = 3;
+        subdivisions[0] = 4;
         
         const Point<dim> bottom_left = (dim == 2 ?
                                         Point<dim>( left, bottom) :
