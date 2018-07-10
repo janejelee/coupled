@@ -227,7 +227,7 @@ namespace FullSolver
     double InitialFunction_phi<dim>::value (const Point<dim>  &p, const unsigned int /*component*/) const
     {
         const double time = this->get_time();
-        return phi0*exp(-chi*time*(top-p[1])*p[0]);
+        return phi0;
     }
     
     template <int dim>
