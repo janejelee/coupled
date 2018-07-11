@@ -61,9 +61,15 @@ namespace FullSolver
         const double lambda = 1.0;
         const double T0 = 1.0;
         const double phi0 = 0.7;
+        const double E = 400.0;
+        const double R = 8.31/1.8;
+        const double Pr = 1e22;
+        const double Re = 1e-24;
+        const double Ri = 1e26;
+        const double gamma = 0.727;
         const double rocktopstress = -0.001;
         
-        const double timestep_size = 0.001;
+        const double timestep_size = 0.00001;
         const double chi = 0.1/timestep_size;
         const double total_timesteps = 20;
     }
