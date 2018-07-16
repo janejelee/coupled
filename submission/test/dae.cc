@@ -50,7 +50,7 @@ namespace FullSolver
         const unsigned int degree_phi  = base_degree;
         const unsigned int degree_T    = base_degree;
         
-        const int refinement_level = 8;
+        const int refinement_level = 5;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
@@ -69,7 +69,7 @@ namespace FullSolver
         const double gamma = 0.727;
         const double rocktopstress = -0.001;
         
-        const double timestep_size = 0.00001;
+        const double timestep_size = 0.000001;
         const double chi = 0.1/timestep_size;
         const double total_timesteps = 20;
     }
@@ -226,7 +226,7 @@ namespace FullSolver
     void InitialFunction_vf<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
         values(0) = 0.0;
-        values(1) = 1;//p[1] + sin(PI*p[0]/right);
+        values(1) = 1.0;//p[1] + sin(PI*p[0]/right);
     }
     
     template <int dim>
@@ -888,7 +888,7 @@ namespace FullSolver
 //                system_rhs_pf(local_dof_indices[i]) += local_rhs(i);
         }
         
-//        // NOW NEED TO STRONGLY IMPOSE THE FLUX CONDITIONS BOTH ON SIDES AND BOTTOM
+        // NOW NEED TO STRONGLY IMPOSE THE FLUX CONDITIONS BOTH ON SIDES AND BOTTOM
 //        {std::map<types::global_dof_index, double> boundary_values_flux;
 //            {
 //                types::global_dof_index n_dofs = dof_handler_pf.n_dofs();
@@ -905,15 +905,16 @@ namespace FullSolver
 //
 //                for (types::global_dof_index i = 0; i < n_dofs; i++)
 //                {
-//                    if (selected_dofs[i]) boundary_values_flux[i] = 0.0; // Side boudaries have flux 0 on pressure
+//                    if (selected_dofs[i]) boundary_values_flux[i] = rho_f; // Side boudaries have flux 0 on pressure
 //                }
+//
 //            }
 //
 //            // Apply the conditions
 //            MatrixTools::apply_boundary_values(boundary_values_flux,
 //                                               system_matrix_pf, solution_pf, system_rhs_pf);
 //        }
-//
+
     }
     
     template <int dim>
@@ -1435,6 +1436,8 @@ namespace FullSolver
         while (timestep_number < total_timesteps)
         {
             std::cout << "   Moving to next time step" << std::endl
+            << "   Program comments: " << std::endl
+            << "            RL"<< refinement_level <<" using normal phi ICs as 0.7. Vf not being solved. All equations in phi as usual. k and lambda all 1. Timestep size is " << timestep_size << std::endl
             << "===========================================" << std::endl;
             
             time += timestep;
@@ -1467,6 +1470,8 @@ namespace FullSolver
             
             print_mesh ();
             move_mesh ();
+            
+            old_solution_phi = solution_phi;
         }
         std::cout << "===========================================" << std::endl;
     }
