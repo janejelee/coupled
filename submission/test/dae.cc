@@ -67,9 +67,9 @@ namespace FullSolver
         const double Re = 1e-24;
         const double Ri = 1e26;
         const double gamma = 0.727;
-        const double rocktopstress = -0.001;
-        
-        const double timestep_size = 0.000001;
+        const double rocktopstress = -0.1;
+    
+        const double timestep_size = 0.00001;
         const double chi = 0.1/timestep_size;
         const double total_timesteps = 20;
     }
@@ -225,8 +225,10 @@ namespace FullSolver
     template <int dim>
     void InitialFunction_vf<dim>::vector_value (const Point<dim> &p, Vector<double>   &values) const
     {
+        const double time = this->get_time();
+
         values(0) = 0.0;
-        values(1) = 1.0;//p[1] + sin(PI*p[0]/right);
+        values(1) = 1000*p[1]*time;//p[1] + sin(PI*p[0]/right);
     }
     
     template <int dim>
@@ -263,7 +265,7 @@ namespace FullSolver
     template <int dim>
     double PhiBoundaryValues<dim>::value (const Point<dim> &p, const unsigned int /*component*/) const
     {
-        const double time = this->get_time();
+//        const double time = this->get_time();
         return phi0;
     }
     
@@ -1077,7 +1079,7 @@ namespace FullSolver
                         }
                         else
                         {
-                            cell_matrix(i,j) += ((vr_values[q_point] *
+                            cell_matrix(i,j) += 0*((vr_values[q_point] *
                                                   fe_values_phi.shape_grad(j,q_point)   *
                                                   (fe_values_phi.shape_value(i,q_point)
                                                    + delta * (vr_values[q_point] *
@@ -1275,11 +1277,11 @@ namespace FullSolver
         pf_direct.vmult (solution_pf, system_rhs_pf);
         constraints_pf.distribute (solution_pf);
         
-        assemble_system_vf ();
-        std::cout << "   Solving for v_f..." << std::endl;
-        SparseDirectUMFPACK  vf_direct;
-        vf_direct.initialize(system_matrix_vf);
-        vf_direct.vmult (solution_vf, system_rhs_vf);
+//        assemble_system_vf ();
+//        std::cout << "   Solving for v_f..." << std::endl;
+//        SparseDirectUMFPACK  vf_direct;
+//        vf_direct.initialize(system_matrix_vf);
+//        vf_direct.vmult (solution_vf, system_rhs_vf);
     }
     
     template <int dim>
@@ -1346,7 +1348,7 @@ namespace FullSolver
         DataOut<dim> data_out_fluid;
         data_out_fluid.add_data_vector (dof_handler_pf, solution_pf,
                                         pf_names, pf_component_interpretation);
-//        data_out_fluid.add_data_vector (dof_handler_vf, solution_vf, "v_f");
+        data_out_fluid.add_data_vector (dof_handler_vf, solution_vf, "v_f");
         
         data_out_fluid.build_patches ();
         const std::string filename_fluid = "solution_fluid-"
@@ -1425,9 +1427,9 @@ namespace FullSolver
         std::cout << "   Assembling at timestep number " << timestep_number <<
         " for rock and fluid..." <<  std::endl << std::flush;
         assemble_system_rock ();
-        assemble_system_pf ();
-
         solve_rock ();
+        
+        assemble_system_pf ();
         solve_fluid ();
         
         output_results ();
