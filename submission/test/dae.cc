@@ -50,7 +50,7 @@ namespace FullSolver
         const unsigned int degree_phi  = base_degree;
         const unsigned int degree_T    = base_degree;
         
-        const int refinement_level = 5;
+        const int refinement_level = 8;
         const double top = 1.0;
         const double bottom = 0.0;
         const double left = 0.0;
