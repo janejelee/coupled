@@ -51,10 +51,10 @@ namespace FullSolver
         const unsigned int degree_T    = base_degree;
         
         const int refinement_level = 8;
-        const double top = 1.0;
+        const double top = 1.0*10;
         const double bottom = 0.0;
         const double left = 0.0;
-        const double right = PI;
+        const double right = PI*10;
         const double patm = 1.0;
         const double rho_f = 1.0;
         const double rho_r = 2.71;
@@ -67,7 +67,7 @@ namespace FullSolver
         const double Re = 1e-24;
         const double Ri = 1e26;
         const double gamma = 0.727;
-        const double rocktopstress = -0.1;
+        const double rocktopstress = -1.0;
     
         const double timestep_size = 0.00001;
         const double chi = 0.1/timestep_size;
@@ -228,13 +228,13 @@ namespace FullSolver
         const double time = this->get_time();
 
         values(0) = 0.0;
-        values(1) = 1000*p[1]*time;//p[1] + sin(PI*p[0]/right);
+        values(1) = -1.0;//400*p[1]*time;//p[1] + sin(PI*p[0]/right);
     }
     
     template <int dim>
     double InitialFunction_phi<dim>::value (const Point<dim>  &p, const unsigned int /*component*/) const
     {
-        const double time = this->get_time();
+//        const double time = this->get_time();
         return phi0;
     }
     
@@ -665,6 +665,8 @@ namespace FullSolver
                                       * phi_p[i]
                                       )*
                     fe_values_rock.JxW(q);
+                    
+//                    std::cout << vf << std::endl;
                 }
             }
             
@@ -694,34 +696,7 @@ namespace FullSolver
                         }
                     }
                 }
-            
-            // Neumann Stress conditions on bottom boundary
-            //            for (unsigned int face_number=0; face_number<GeometryInfo<dim>::faces_per_cell; ++face_number)
-            //                if (cell->face(face_number)->at_boundary()
-            //                    &&
-            //                    (cell->face(face_number)->boundary_id() == 2))
-            //                {
-            //                    fe_face_values_rock.reinit (cell, face_number);
-            //
-            //                    fe_face_values_phi.reinit (phi_cell, face_number);
-            //                    bottomstress.vector_value_list
-            //                    (fe_face_values_rock.get_quadrature_points(), bottomstress_values);
-            //                    fe_face_values_phi.get_function_values(solution_phi, phi_boundary_values);
-            //
-            //                    for (unsigned int q_point=0; q_point<n_face_q_points; ++q_point)
-            //                    {
-            //                        for (unsigned int i=0; i<dofs_per_cell; ++i)
-            //                        {
-            //                            const unsigned int component_i = fe_rock.system_to_component_index(i).first;
-            //                            local_rhs(i) += (-bottomstress_values[q_point](component_i)*
-            //                                             (1.0 - phi_boundary_values[q_point])*
-            //                                             fe_face_values_rock.
-            //                                             shape_value(i,q_point) *
-            //                                             fe_face_values_rock.JxW(q_point));
-            //                        }
-            //                    }
-            //                }
-            
+
             for (unsigned int i=0; i<dofs_per_cell; ++i)
             {
                 for (unsigned int j=i+1; j<dofs_per_cell; ++j)
@@ -843,7 +818,7 @@ namespace FullSolver
                     }
                     
                     local_rhs(i) += phi_i_p *
-                    (div_vr_values[q]
+                                            (div_vr_values[q]
                      //                                             -
                      //                                             lambda*rho_f* unitz_values[q]
                      //                                             *grad_phi_values[q]*a*pow(phi_values[q],a-1.0)
@@ -1079,7 +1054,7 @@ namespace FullSolver
                         }
                         else
                         {
-                            cell_matrix(i,j) += 0*((vr_values[q_point] *
+                            cell_matrix(i,j) += ((vr_values[q_point] *
                                                   fe_values_phi.shape_grad(j,q_point)   *
                                                   (fe_values_phi.shape_value(i,q_point)
                                                    + delta * (vr_values[q_point] *
@@ -1277,11 +1252,11 @@ namespace FullSolver
         pf_direct.vmult (solution_pf, system_rhs_pf);
         constraints_pf.distribute (solution_pf);
         
-//        assemble_system_vf ();
-//        std::cout << "   Solving for v_f..." << std::endl;
-//        SparseDirectUMFPACK  vf_direct;
-//        vf_direct.initialize(system_matrix_vf);
-//        vf_direct.vmult (solution_vf, system_rhs_vf);
+        assemble_system_vf ();
+        std::cout << "   Solving for v_f..." << std::endl;
+        SparseDirectUMFPACK  vf_direct;
+        vf_direct.initialize(system_matrix_vf);
+        vf_direct.vmult (solution_vf, system_rhs_vf);
     }
     
     template <int dim>
@@ -1445,15 +1420,9 @@ namespace FullSolver
             time += timestep;
             ++timestep_number;
             
-//            InitialFunction_phi<dim> phi_function;
-//            phi_function.set_time(time);
-//            InitialFunction_pf<dim> pf_function;
-//            pf_function.set_time(time);
-            InitialFunction_vf<dim> vf_function;
-            vf_function.set_time(time);
-//            VectorTools::interpolate(dof_handler_phi, phi_function, solution_phi);
-//            VectorTools::interpolate(dof_handler_pf, pf_function, solution_pf);
-            VectorTools::interpolate(dof_handler_vf, vf_function, solution_vf);
+//            InitialFunction_vf<dim> vf_function;
+//            vf_function.set_time(time);
+//            VectorTools::interpolate(dof_handler_vf, vf_function, solution_vf);
             
             std::cout << "   Assembling at timestep number " << timestep_number
             << " from phi..." <<  std::endl << std::flush;
