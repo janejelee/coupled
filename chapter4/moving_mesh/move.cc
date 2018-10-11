@@ -80,7 +80,7 @@ namespace FullSolver
         const double Nu = Re * Pr;
         const double gamma = 0.727; // depends on compaction coefficient
         
-        const double timestep_size = 0.001;
+        const double timestep_size = 0.005;
         const int total_timesteps = 2000;
         
         const double sed_rate = 100000;
