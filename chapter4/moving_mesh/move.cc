@@ -71,7 +71,7 @@ namespace FullSolver
         const double a = 8.0;
         
         const double mur0 = 1e21;
-        const double H0 = 1e-10; // 1e-10 corr to 1ma.
+        const double H0 = 1e-11; // 1e-10 corr to 1ma.
         const double phi0 = 0.7; //depends on rock type
         const double lambda = 1; //always given k_0 is 10^-13
         const double Pr = 1e3*mur0/1e3; //depends on mu_r and kappa. 1e3 mur0/kappa
