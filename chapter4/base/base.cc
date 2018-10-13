@@ -880,7 +880,7 @@ namespace FullSolver
             
             for (unsigned int q=0; q<n_q_points; ++q)
             {
-                const double perm = pow(phi_values[q]/phi0,a);
+                const double perm = 0.0001;//pow(phi_values[q]/phi0,a);
                 
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
@@ -901,7 +901,7 @@ namespace FullSolver
                     }
                     
                     
-                    local_rhs(i) += phi_i_p * (div_vr_values[q] - lambda*rho_f*unitz_values[q]
+                    local_rhs(i) += phi_i_p * (div_vr_values[q] - 0*lambda*rho_f*unitz_values[q]
                                                *grad_phi_values[q]*a*pow(phi_values[q],a-1.0) )
                     * fe_values_pf.JxW(q);
                 }
@@ -1005,7 +1005,7 @@ namespace FullSolver
                     const unsigned int
                     component_i = fe_vf.system_to_component_index(i).first;
                     
-                    const double perm = pow(phi_values[q_point],a)*pow(1./phi0,a);
+                    const double perm = 0.0001;//pow(phi_values[q_point],a)*pow(1./phi0,a);
                     
                     local_rhs(i) +=    ( vr_values[q_point][component_i]
                                         + (lambda*perm/phi_values[q_point])*
