@@ -67,7 +67,7 @@ namespace FullSolver
         const double R = 8.31/1.8;
         const double rocktopstress = -1.00;
         const double sill_temp = 50000;
-        const double q = 10.0;
+        const double q = 10.0; 
         const double a = 8.0;
         
         const unsigned int test_no = 50;
