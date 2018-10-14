@@ -70,7 +70,7 @@ namespace FullSolver
         const double q = 10.0;
         const double a = 8.0;
         
-        const unsigned int test_no = 42;
+        const unsigned int test_no = 44;
         
         const double mur0 = 1e20;
         const double d = 1e3;
@@ -884,7 +884,7 @@ namespace FullSolver
             
             for (unsigned int q=0; q<n_q_points; ++q)
             {
-                const double perm = 0.001;//pow(phi_values[q]/phi0,a);
+                const double perm = 100;//pow(phi_values[q]/phi0,a);
                 
                 for (unsigned int i=0; i<dofs_per_cell; ++i)
                 {
@@ -1009,7 +1009,7 @@ namespace FullSolver
                     const unsigned int
                     component_i = fe_vf.system_to_component_index(i).first;
                     
-                    const double perm = 0.001;//pow(phi_values[q_point],a)*pow(1./phi0,a);
+                    const double perm = 100;//pow(phi_values[q_point],a)*pow(1./phi0,a);
                     
                     local_rhs(i) +=    ( vr_values[q_point][component_i]
                                         + (lambda*perm/phi_values[q_point])*
