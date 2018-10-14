@@ -1788,7 +1788,7 @@ namespace FullSolver
             assemble_system_pf ();
             solve_fluid ();
             
-            if (timestep_number % 20 == 0)
+//            if (timestep_number % 20 == 0)
                 output_results ();
                         move_mesh ();
             
