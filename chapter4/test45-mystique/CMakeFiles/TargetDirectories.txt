@@ -1,0 +1,10 @@
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/edit_cache.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/distclean.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/runclean.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/rebuild_cache.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/info.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/strip_comments.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/move.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/debug.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/run.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test45-mystique/CMakeFiles/release.dir
