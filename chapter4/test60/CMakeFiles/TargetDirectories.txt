@@ -1,0 +1,10 @@
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/edit_cache.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/distclean.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/runclean.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/rebuild_cache.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/info.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/strip_comments.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/move.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/debug.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/run.dir
+/scratch/janelee/deal.II-v9.0.0/fullmodel/chapter4/test60/CMakeFiles/release.dir
