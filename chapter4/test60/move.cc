@@ -1240,7 +1240,7 @@ namespace FullSolver
                 if (timestep_number == 1)
                     ddt = 1.0;
                 else
-                    ddt = 1;//./(timestep_size) * ((pr_values[q_point] - pf_values[q_point]) - (old_pr_values[q_point] - old_pf_values[q_point]));
+                    ddt = 1./(timestep_size) * ((pr_values[q_point] - pf_values[q_point]) - (old_pr_values[q_point] - old_pf_values[q_point]));
                 
 //                std::cout << ddt<< std::endl;
                 
